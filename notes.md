@@ -10,8 +10,8 @@ Tokenizers:
 
   Models can only process numbers, so tokenizers need to convert our text inputs to numerical data.
 
-   there are types of tokenisers :
-     
+  there are types of tokenisers :
+
      - Word-based
      - Character-based
      -  Subword-based
@@ -70,6 +70,7 @@ logits and probabilities :
 
 
   probabilities :
+
     Logits give a model an unconstrained output space during training and Probabilities must stay between 0 and 1 and, in a multi-class setting, must sum to 1.
 
     Models usually compute raw scores first, then apply the appropriate probability function (like softmax) when a probability is needed.
@@ -79,6 +80,7 @@ logits and probabilities :
 
 
   Example:
+
     model gives raw scores (logits) for Cat, Dog, Bird:
       Cat: 2.0    Dog: 1.0    Bird: 0.1
 
@@ -125,6 +127,6 @@ resouerses:
 
 
 
-youtube video i found of food:
+youtube video i found of food that i want to try:
 https://youtube.com/shorts/OZ13QXwvzBg?si=iewyNqHuQ6TS88nC
 
