@@ -1,0 +1,32 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Type checking and test caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Package build artifacts
+dist/
+build/
+*.egg-info/
+*.egg
+
+# IDE and OS junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Project-specific: output directory (subject says not to commit it)
+data/output/
+
+# Python version file (optional, but you have .python-version currently)
+.python-version
