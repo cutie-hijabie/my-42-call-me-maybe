@@ -19,3 +19,6 @@ class LLMWrapper:
 
     def wrapper_get_path_to_vocab_file(self) -> str:
         return self.llm.get_path_to_vocab_file()
+
+    def wrapper_decode(self, token_ids: List[int]) -> str:
+        return self.llm.decode(token_ids)
