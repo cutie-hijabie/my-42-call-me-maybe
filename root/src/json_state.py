@@ -21,6 +21,14 @@ class JasonStateMacheine:
         self.brackets = []
         self.string_role = None
         self.digits_needed = 0
+        self.literal_target: str | None = None
+        self.literal_pos = 0
+        self.is_leading_zero = False
+        self.exponent = False
+        self.has_exponent_sign = False
+        self.digit = True
+        self.decimal = False
+        self.need_digit = False
 
     def reset(self) -> None:
         self.state = JasonStates.START
@@ -50,6 +58,13 @@ class JasonStateMacheine:
                 return True
             elif char == "t" or char == "n" or char == "f":
                 self.state = JasonStates.IN_LITERAL
+                self.literal_pos = 1
+                if char == "t":
+                    self.literal_target = "true"
+                elif char == "n":
+                    self.literal_target = "null"
+                else:
+                    self.literal_target = "false"
                 return True
             elif char.isdigit():
                 self.state = JasonStates.IN_NUMBER
@@ -57,13 +72,19 @@ class JasonStateMacheine:
                 self.exponent = False
                 self.decimal = False
                 self.need_digit = False
+                self.is_leading_zero = False
+                self.has_exponent_sign = False
+                if int(char) == 0:
+                    self.is_leading_zero = True
                 return True
-            elif char == "-":
+            elif char == "-" and not self.has_exponent_sign:
                 self.state = JasonStates.IN_NUMBER
                 self.digit = False
                 self.exponent = False
                 self.decimal = False
                 self.need_digit = True
+                self.has_exponent_sign = False
+                self.is_leading_zero = False
                 return True
 
         elif self.state == JasonStates.EXPECT_KEY:
@@ -87,16 +108,29 @@ class JasonStateMacheine:
                 self.exponent = False
                 self.decimal = False
                 self.need_digit = False
+                self.is_leading_zero = False
+                self.has_exponent_sign = False
+                if int(char) == 0:
+                    self.is_leading_zero = True
                 return True
-            elif char == "-":
+            elif char == "-" and not self.has_exponent_sign:
                 self.state = JasonStates.IN_NUMBER
                 self.digit = False
                 self.exponent = False
                 self.decimal = False
                 self.need_digit = True
+                self.is_leading_zero = False
+                self.has_exponent_sign = False
                 return True
             elif char == "t" or char == "n" or char == "f":
                 self.state = JasonStates.IN_LITERAL
+                self.literal_pos = 1
+                if char == "t":
+                    self.literal_target = "true"
+                elif char == "n":
+                    self.literal_target = "null"
+                else:
+                    self.literal_target = "false"
                 return True
             elif char == "[":
                 self.state = JasonStates.IN_ARRAY
@@ -113,39 +147,57 @@ class JasonStateMacheine:
 
         elif self.state == JasonStates.IN_NUMBER:
             if char.isdigit():
+                if self.is_leading_zero:
+                    return False
+                if int(char) == 0 and not self.digit:
+                    self.is_leading_zero = True
                 self.digit = True
+                if self.need_digit:
+                    self.need_digit = False
                 return True
             elif char == ".":
                 if self.digit and not self.decimal and not self.exponent:
+                    self.need_digit = True
                     self.decimal = True
+                    if self.is_leading_zero:
+                        self.is_leading_zero = False
                     return True
             elif char in "eE":
                 if self.digit and not self.exponent:
                     self.exponent = True
                     self.need_digit = True
+                    if self.is_leading_zero:
+                        self.is_leading_zero = False
                     return True
             elif char in "+-":
-                if self.digit and self.exponent:
+                if (
+                    self.digit
+                    and self.exponent
+                    and not self.has_exponent_sign
+                    and self.need_digit
+                ):
                     self.need_digit = True
+                    self.has_exponent_sign = True
                     return True
             elif char == "," and not self.need_digit:
-                self.state = JasonStates.IN_ARRAY
+                self.state = JasonStates.AFTER_VALUE
+                self.transition(char)
                 return True
             elif (
                 char == "}"
                 and not self.need_digit
                 and self.brackets[-1] == "{"
             ):
-                self.brackets.pop()
-                self.state = JasonStates.DONE
+                self.state = JasonStates.AFTER_VALUE
+                self.transition(char)
                 return True
             elif (
                 char == "]"
                 and not self.need_digit
                 and self.brackets[-1] == "["
             ):
-                self.brackets.pop()
-                self.state = JasonStates.DONE
+                self.state = JasonStates.AFTER_VALUE
+                self.transition(char)
                 return True
 
         elif self.state == JasonStates.IN_STRING:
@@ -193,6 +245,13 @@ class JasonStateMacheine:
                 return True
             elif char == "t" or char == "n" or char == "f":
                 self.state = JasonStates.IN_LITERAL
+                self.literal_pos = 1
+                if char == "t":
+                    self.literal_target = "true"
+                elif char == "n":
+                    self.literal_target = "null"
+                else:
+                    self.literal_target = "false"
                 return True
             elif char.isdigit():
                 self.state = JasonStates.IN_NUMBER
@@ -200,13 +259,55 @@ class JasonStateMacheine:
                 self.exponent = False
                 self.decimal = False
                 self.need_digit = False
+                self.is_leading_zero = False
+                self.has_exponent_sign = False
+                if int(char) == 0:
+                    self.is_leading_zero = True
                 return True
-            elif char == "-":
+            elif char == "-" and not self.has_exponent_sign:
                 self.state = JasonStates.IN_NUMBER
                 self.digit = False
                 self.exponent = False
                 self.decimal = False
                 self.need_digit = True
+                self.has_exponent_sign = False
+                self.is_leading_zero = False
+                return True
+
+        elif self.state == JasonStates.AFTER_VALUE:
+            if char == ",":
+                if self.brackets[-1] == "{":
+                    self.state = JasonStates.EXPECT_KEY
+                    return True
+                elif self.brackets[-1] == "[":
+                    self.state = JasonStates.EXPECT_VALUE
+                    return True
+            elif char == "]" and self.brackets[-1] == "[":
+                self.brackets.pop()
+                if not self.brackets:
+                    self.state = JasonStates.DONE
+                else:
+                    self.state = JasonStates.AFTER_VALUE
+                return True
+            elif char == "}" and self.brackets[-1] == "{":
+                self.brackets.pop()
+                if not self.brackets:
+                    self.state = JasonStates.DONE
+                else:
+                    self.state = JasonStates.AFTER_VALUE
+                return True
+
+        elif self.state == JasonStates.IN_LITERAL:
+            if (
+                self.literal_target
+                and char == self.literal_target[self.literal_pos]
+            ):
+                self.literal_pos += 1
+                if (
+                    self.literal_target
+                    and len(self.literal_target) == self.literal_pos
+                ):
+                    self.state = JasonStates.AFTER_VALUE
                 return True
 
         return False
