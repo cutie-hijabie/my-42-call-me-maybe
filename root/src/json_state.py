@@ -19,6 +19,8 @@ class JasonStateMacheine:
     def __init__(self) -> None:
         self.state = JasonStates.START
         self.brackets = []
+        self.string_role = None
+        self.digits_needed = 0
 
     def reset(self) -> None:
         self.state = JasonStates.START
@@ -71,6 +73,7 @@ class JasonStateMacheine:
                 return True
             elif char == '"':
                 self.state = JasonStates.IN_STRING
+                self.string_role = "key"
                 return True
 
         elif self.state == JasonStates.IN_ARRAY:
@@ -101,6 +104,7 @@ class JasonStateMacheine:
                 return True
             elif char == '"':
                 self.state = JasonStates.IN_STRING
+                self.string_role = "value"
                 return True
             elif char == "{":
                 self.state = JasonStates.EXPECT_KEY
@@ -143,12 +147,20 @@ class JasonStateMacheine:
                 self.brackets.pop()
                 self.state = JasonStates.DONE
                 return True
+
         elif self.state == JasonStates.IN_STRING:
             if not char == '"' and not char == "\\":
                 return True
             elif char == '"':
-                self.state = JasonStates.DONE
-                return True
+                if self.string_role == "value":
+                    self.state = JasonStates.AFTER_VALUE
+                    return True
+                elif self.string_role == "key":
+                    self.state = JasonStates.EXPECT_COLON
+                    return True
+                else:
+                    self.state = JasonStates.DONE
+                    return True
             elif char == "\\":
                 self.state = JasonStates.IN_STRING_ESCAPE
                 return True
@@ -159,6 +171,42 @@ class JasonStateMacheine:
                 return True
             elif char == "u":
                 self.digits_needed = 4
+                return True
+
+        elif self.state == JasonStates.EXPECT_COLON:
+            if char == ":":
+                self.state = JasonStates.EXPECT_VALUE
+                return True
+
+        elif self.state == JasonStates.EXPECT_VALUE:
+            if char == "{":
+                self.state = JasonStates.EXPECT_KEY
+                self.brackets.append(char)
+                return True
+            elif char == "[":
+                self.state = JasonStates.IN_ARRAY
+                self.brackets.append(char)
+                return True
+            elif char == '"':
+                self.string_role = "value"
+                self.state = JasonStates.IN_STRING
+                return True
+            elif char == "t" or char == "n" or char == "f":
+                self.state = JasonStates.IN_LITERAL
+                return True
+            elif char.isdigit():
+                self.state = JasonStates.IN_NUMBER
+                self.digit = True
+                self.exponent = False
+                self.decimal = False
+                self.need_digit = False
+                return True
+            elif char == "-":
+                self.state = JasonStates.IN_NUMBER
+                self.digit = False
+                self.exponent = False
+                self.decimal = False
+                self.need_digit = True
                 return True
 
         return False
