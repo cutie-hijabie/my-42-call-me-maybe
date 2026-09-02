@@ -25,6 +25,15 @@ class JasonStateMacheine:
 
     def transition(self, char: str) -> bool:
 
+        if self.digits_needed > 0:
+            if char in "0123456789abcdefABCDEF":
+                self.digits_needed -= 1
+                if self.digits_needed == 0:
+                    self.state = JasonStates.IN_STRING
+                return True
+            else:
+                return False
+
         if self.state == JasonStates.START:
             if char == "{":
                 self.state = JasonStates.EXPECT_KEY
@@ -134,12 +143,22 @@ class JasonStateMacheine:
                 self.brackets.pop()
                 self.state = JasonStates.DONE
                 return True
-
         elif self.state == JasonStates.IN_STRING:
             if not char == '"' and not char == "\\":
                 return True
             elif char == '"':
                 self.state = JasonStates.DONE
+                return True
+            elif char == "\\":
+                self.state = JasonStates.IN_STRING_ESCAPE
+                return True
+
+        elif self.state == JasonStates.IN_STRING_ESCAPE:
+            if char in '"\\/bfnrt':
+                self.state = JasonStates.IN_STRING
+                return True
+            elif char == "u":
+                self.digits_needed = 4
                 return True
 
         return False
