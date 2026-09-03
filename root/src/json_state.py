@@ -29,6 +29,7 @@ class JasonStateMacheine:
         self.digit = True
         self.decimal = False
         self.need_digit = False
+        self.allow_empty_object = False
 
     def reset(self) -> None:
         self.state = JasonStates.START
@@ -90,7 +91,10 @@ class JasonStateMacheine:
         elif self.state == JasonStates.EXPECT_KEY:
             if char == "}" and self.brackets[-1] == "{":
                 self.brackets.pop()
-                self.state = JasonStates.DONE
+                if not self.brackets:
+                    self.state = JasonStates.DONE
+                else:
+                    self.state = JasonStates.AFTER_VALUE
                 return True
             elif char == '"':
                 self.state = JasonStates.IN_STRING
@@ -100,7 +104,10 @@ class JasonStateMacheine:
         elif self.state == JasonStates.IN_ARRAY:
             if char == "]" and self.brackets[-1] == "[":
                 self.brackets.pop()
-                self.state = JasonStates.DONE
+                if not self.brackets:
+                    self.state = JasonStates.DONE
+                else:
+                    self.state = JasonStates.AFTER_VALUE
                 return True
             elif char.isdigit():
                 self.state = JasonStates.IN_NUMBER

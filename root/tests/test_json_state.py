@@ -3,15 +3,6 @@ import pytest
 from src.json_state import JasonStateMacheine
 
 
-def feed(machine, text):
-    results = []
-
-    for index, char in enumerate(text):
-        results.append((index, char, machine.transition(char)))
-
-    return results
-
-
 def assert_valid_json(text):
     machine = JasonStateMacheine()
 
@@ -37,7 +28,8 @@ def assert_invalid_json(text):
             return
 
     assert machine.is_complete() is False, (
-        f"Invalid JSON was considered complete: {text!r}"
+        f"Invalid JSON was considered complete: {text!r}\n"
+        f"Final state: {machine.state}"
     )
 
 
@@ -65,9 +57,9 @@ def assert_invalid_at(text, bad_index):
     )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # NUMBERS
-# ---------------------------------------------------------
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -133,9 +125,9 @@ def test_invalid_numbers(value):
     assert_invalid_json(value)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # STRINGS
-# ---------------------------------------------------------
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -183,9 +175,9 @@ def test_invalid_or_incomplete_strings(value):
     assert_invalid_json(value)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # LITERALS
-# ---------------------------------------------------------
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -224,9 +216,9 @@ def test_invalid_or_incomplete_literals(value):
     assert_invalid_json(value)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # ARRAYS
-# ---------------------------------------------------------
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -277,9 +269,9 @@ def test_invalid_or_incomplete_arrays(value):
     assert_invalid_json(value)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # OBJECTS
-# ---------------------------------------------------------
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -327,9 +319,9 @@ def test_invalid_or_incomplete_objects(value):
     assert_invalid_json(value)
 
 
-# ---------------------------------------------------------
-# NESTING
-# ---------------------------------------------------------
+# =========================================================
+# NESTED JSON
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -363,9 +355,9 @@ def test_invalid_nested_json(value):
     assert_invalid_json(value)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # EMPTY CONTAINERS
-# ---------------------------------------------------------
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -385,9 +377,9 @@ def test_empty_containers(value):
     assert_valid_json(value)
 
 
-# ---------------------------------------------------------
-# KEYS AND VALUES
-# ---------------------------------------------------------
+# =========================================================
+# KEY / VALUE TYPES
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -420,9 +412,9 @@ def test_non_string_object_keys_are_invalid(value):
     assert_invalid_json(value)
 
 
-# ---------------------------------------------------------
-# WRONG CLOSING CONTAINERS
-# ---------------------------------------------------------
+# =========================================================
+# MISMATCHED BRACKETS
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -440,9 +432,9 @@ def test_mismatched_brackets(value):
     assert_invalid_json(value)
 
 
-# ---------------------------------------------------------
-# EXTRA DATA AFTER COMPLETE JSON
-# ---------------------------------------------------------
+# =========================================================
+# EXTRA JSON AFTER COMPLETION
+# =========================================================
 
 
 @pytest.mark.parametrize(
@@ -459,9 +451,9 @@ def test_extra_json_after_complete_value(value):
     assert_invalid_json(value)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # EXACT ERROR LOCATION
-# ---------------------------------------------------------
+# =========================================================
 
 
 @pytest.mark.parametrize(
