@@ -311,3 +311,29 @@ class JasonStateMacheine:
                 return True
 
         return False
+
+    def is_complete(self) -> bool:
+
+        if self.state == JasonStates.START:
+            return False
+        elif self.state == JasonStates.EXPECT_KEY:
+            return False
+        elif self.state == JasonStates.IN_ARRAY:
+            return False
+        elif self.state == JasonStates.IN_STRING_ESCAPE:
+            return False
+        elif self.state == JasonStates.IN_STRING:
+            return False
+        elif self.need_digit:
+            return False
+        elif self.state == JasonStates.EXPECT_COLON:
+            return False
+        elif self.state == JasonStates.EXPECT_VALUE:
+            return False
+        elif self.state == JasonStates.AFTER_VALUE and self.brackets:
+            return False
+        elif self.state == JasonStates.IN_LITERAL:
+            return False
+        elif self.state == JasonStates.IN_NUMBER and self.brackets:
+            return False
+        return True
