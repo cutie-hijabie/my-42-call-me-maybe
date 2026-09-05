@@ -106,6 +106,7 @@ def test_valid_numbers(value):
         "-1.",
         ".5",
         "-.5",
+        "1.e5",
         "1e",
         "1E",
         "1e-",
@@ -173,6 +174,10 @@ def test_valid_strings(value):
 )
 def test_invalid_or_incomplete_strings(value):
     assert_invalid_json(value)
+
+
+def test_string_with_unescaped_newline_is_invalid():
+    assert_invalid_json('"hello\nworld"')
 
 
 # =========================================================
@@ -272,6 +277,10 @@ def test_invalid_or_incomplete_arrays(value):
 # =========================================================
 # OBJECTS
 # =========================================================
+
+
+def test_json_with_whitespace():
+    assert_valid_json('{ "a" : 1 }')
 
 
 @pytest.mark.parametrize(
@@ -471,3 +480,37 @@ def test_extra_json_after_complete_value(value):
 )
 def test_rejects_at_exact_invalid_character(value, bad_index):
     assert_invalid_at(value, bad_index)
+
+
+def test_validate_candidate_accepts_valid_continuation():
+    machine = JasonStateMacheine()
+
+    assert machine.validate_candidate("true") is True
+
+
+def test_validate_candidate_rejects_invalid_continuation():
+    machine = JasonStateMacheine()
+
+    assert machine.validate_candidate("truX") is False
+
+
+def test_validate_candidate_does_not_mutate_machine():
+    machine = JasonStateMacheine()
+    original_state = machine.state
+    original_brackets = machine.brackets.copy()
+
+    machine.validate_candidate('{"a":[1,2]}')
+
+    assert machine.state == original_state
+    assert machine.brackets == original_brackets
+
+
+def test_validate_candidate_from_partial_json():
+    machine = JasonStateMacheine()
+
+    for char in '{"a":':
+        assert machine.transition(char) is True
+
+    assert machine.validate_candidate("true") is True
+    assert machine.validate_candidate("}") is False
+    assert machine.validate_candidate("[1]") is True

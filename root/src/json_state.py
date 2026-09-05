@@ -1,4 +1,5 @@
 from enum import IntEnum
+import copy
 
 
 class JasonStates(IntEnum):
@@ -36,6 +37,12 @@ class JasonStateMacheine:
 
     def transition(self, char: str) -> bool:
 
+        if char in "\t\n\r " and not (
+            self.state == JasonStates.IN_STRING
+            or self.state == JasonStates.IN_STRING_ESCAPE
+        ):
+            return True
+
         if self.digits_needed > 0:
             if char in "0123456789abcdefABCDEF":
                 self.digits_needed -= 1
@@ -49,6 +56,7 @@ class JasonStateMacheine:
             if char == "{":
                 self.state = JasonStates.EXPECT_KEY
                 self.brackets.append(char)
+                self.allow_empty_object = True
                 return True
             elif char == "[":
                 self.state = JasonStates.IN_ARRAY
@@ -89,7 +97,11 @@ class JasonStateMacheine:
                 return True
 
         elif self.state == JasonStates.EXPECT_KEY:
-            if char == "}" and self.brackets[-1] == "{":
+            if (
+                char == "}"
+                and self.brackets[-1] == "{"
+                and self.allow_empty_object
+            ):
                 self.brackets.pop()
                 if not self.brackets:
                     self.state = JasonStates.DONE
@@ -150,6 +162,7 @@ class JasonStateMacheine:
             elif char == "{":
                 self.state = JasonStates.EXPECT_KEY
                 self.brackets.append(char)
+                self.allow_empty_object = True
                 return True
 
         elif self.state == JasonStates.IN_NUMBER:
@@ -169,7 +182,7 @@ class JasonStateMacheine:
                     if self.is_leading_zero:
                         self.is_leading_zero = False
                     return True
-            elif char in "eE":
+            elif char in "eE" and not self.need_digit:
                 if self.digit and not self.exponent:
                     self.exponent = True
                     self.need_digit = True
@@ -208,7 +221,9 @@ class JasonStateMacheine:
                 return True
 
         elif self.state == JasonStates.IN_STRING:
-            if not char == '"' and not char == "\\":
+            if ord(char) < 32:
+                return False
+            elif not char == '"' and not char == "\\":
                 return True
             elif char == '"':
                 if self.string_role == "value":
@@ -241,6 +256,7 @@ class JasonStateMacheine:
             if char == "{":
                 self.state = JasonStates.EXPECT_KEY
                 self.brackets.append(char)
+                self.allow_empty_object = True
                 return True
             elif char == "[":
                 self.state = JasonStates.IN_ARRAY
@@ -285,6 +301,7 @@ class JasonStateMacheine:
             if char == ",":
                 if self.brackets[-1] == "{":
                     self.state = JasonStates.EXPECT_KEY
+                    self.allow_empty_object = False
                     return True
                 elif self.brackets[-1] == "[":
                     self.state = JasonStates.EXPECT_VALUE
@@ -343,4 +360,13 @@ class JasonStateMacheine:
             return False
         elif self.state == JasonStates.IN_NUMBER and self.brackets:
             return False
+        return True
+
+    def validate_candidate(self, candidate: str) -> bool:
+        machine_copy = copy.deepcopy(self)
+
+        for char in candidate:
+            result = machine_copy.transition(char)
+            if not result:
+                return False
         return True
