@@ -1,6 +1,6 @@
 import pytest
 
-from src.json_state import JasonStateMacheine
+from src.json_state import JasonStateMacheine, JasonStates
 
 
 def assert_valid_json(text):
@@ -514,3 +514,133 @@ def test_validate_candidate_from_partial_json():
     assert machine.validate_candidate("true") is True
     assert machine.validate_candidate("}") is False
     assert machine.validate_candidate("[1]") is True
+
+
+def test_trace_records_each_character():
+    machine = JasonStateMacheine()
+
+    trace = machine.trace('{"a":')
+
+    assert len(trace) == 5
+
+
+def test_trace_records_state():
+    machine = JasonStateMacheine()
+
+    trace = machine.trace('{"a":')
+
+    assert trace[-1][1] == JasonStates.EXPECT_VALUE
+
+
+def test_trace_records_acceptance():
+    machine = JasonStateMacheine()
+
+    trace = machine.trace('{"a":}')
+
+    assert trace[-1][2] is False
+
+
+def test_trace_does_not_mutate_machine():
+    machine = JasonStateMacheine()
+
+    original_state = machine.state
+    original_brackets = machine.brackets.copy()
+
+    machine.trace('{"a":[1,2]}')
+
+    assert machine.state == original_state
+    assert machine.brackets == original_brackets
+
+
+def test_legal_next_chars_at_start():
+    machine = JasonStateMacheine()
+
+    legal = machine.legal_next_chars()
+
+    assert "{" in legal
+    assert "[" in legal
+    assert '"' in legal
+    assert "t" in legal
+    assert "f" in legal
+    assert "n" in legal
+    assert "0" in legal
+    assert "-" in legal
+
+    assert "}" not in legal
+    assert "]" not in legal
+    assert ":" not in legal
+    assert "," not in legal
+
+
+def test_legal_next_chars_in_string_escape():
+    machine = JasonStateMacheine()
+
+    for char in '"hello\\':
+        assert machine.transition(char) is True
+
+    legal = machine.legal_next_chars()
+
+    assert '"' in legal
+    assert "\\" in legal
+    assert "/" in legal
+    assert "b" in legal
+    assert "f" in legal
+    assert "n" in legal
+    assert "r" in legal
+    assert "t" in legal
+    assert "u" in legal
+
+    assert "x" not in legal
+
+
+def test_trace_records_legal_next_chars():
+    machine = JasonStateMacheine()
+
+    trace = machine.trace('{"a":')
+
+    legal_chars = trace[-1][3]
+
+    assert '"' in legal_chars
+    assert "{" in legal_chars
+    assert "[" in legal_chars
+    assert "t" in legal_chars
+    assert "f" in legal_chars
+    assert "n" in legal_chars
+    assert "0" in legal_chars
+
+    assert "}" not in legal_chars
+    assert ":" not in legal_chars
+    assert "," not in legal_chars
+
+
+def test_top_level_closing_bracket_is_invalid():
+    assert_invalid_json("]")
+
+
+def test_top_level_number_followed_by_closing_bracket_is_invalid():
+    assert_invalid_json("1]")
+
+
+def test_top_level_number_followed_by_closing_brace_is_invalid():
+    assert_invalid_json("1}")
+
+
+def test_top_level_number_followed_by_comma_is_invalid():
+    assert_invalid_json("1,")
+
+
+def test_top_level_literal_followed_by_comma_is_invalid():
+    assert_invalid_json("true,")
+
+
+def test_reset_restores_clean_machine():
+    machine = JasonStateMacheine()
+
+    for char in '{"a":[12.3e-4,{"b":':
+        assert machine.transition(char) is True
+
+    machine.reset()
+
+    fresh_machine = JasonStateMacheine()
+
+    assert machine.__dict__ == fresh_machine.__dict__

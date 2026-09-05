@@ -1,5 +1,7 @@
 from enum import IntEnum
 import copy
+from typing import Tuple
+from typing_extensions import List
 
 
 class JasonStates(IntEnum):
@@ -34,6 +36,18 @@ class JasonStateMacheine:
 
     def reset(self) -> None:
         self.state = JasonStates.START
+        self.brackets = []
+        self.string_role = None
+        self.digits_needed = 0
+        self.literal_target = None
+        self.literal_pos = 0
+        self.is_leading_zero = False
+        self.exponent = False
+        self.has_exponent_sign = False
+        self.digit = True
+        self.decimal = False
+        self.need_digit = False
+        self.allow_empty_object = False
 
     def transition(self, char: str) -> bool:
 
@@ -75,7 +89,7 @@ class JasonStateMacheine:
                 else:
                     self.literal_target = "false"
                 return True
-            elif char.isdigit():
+            elif char in "0123456789":
                 self.state = JasonStates.IN_NUMBER
                 self.digit = True
                 self.exponent = False
@@ -99,6 +113,7 @@ class JasonStateMacheine:
         elif self.state == JasonStates.EXPECT_KEY:
             if (
                 char == "}"
+                and self.brackets
                 and self.brackets[-1] == "{"
                 and self.allow_empty_object
             ):
@@ -114,14 +129,14 @@ class JasonStateMacheine:
                 return True
 
         elif self.state == JasonStates.IN_ARRAY:
-            if char == "]" and self.brackets[-1] == "[":
+            if char == "]" and self.brackets and self.brackets[-1] == "[":
                 self.brackets.pop()
                 if not self.brackets:
                     self.state = JasonStates.DONE
                 else:
                     self.state = JasonStates.AFTER_VALUE
                 return True
-            elif char.isdigit():
+            elif char in "0123456789":
                 self.state = JasonStates.IN_NUMBER
                 self.digit = True
                 self.exponent = False
@@ -166,7 +181,7 @@ class JasonStateMacheine:
                 return True
 
         elif self.state == JasonStates.IN_NUMBER:
-            if char.isdigit():
+            if char in "0123456789":
                 if self.is_leading_zero:
                     return False
                 if int(char) == 0 and not self.digit:
@@ -201,24 +216,23 @@ class JasonStateMacheine:
                     return True
             elif char == "," and not self.need_digit:
                 self.state = JasonStates.AFTER_VALUE
-                self.transition(char)
-                return True
+                return self.transition(char)
             elif (
                 char == "}"
+                and self.brackets
                 and not self.need_digit
                 and self.brackets[-1] == "{"
             ):
                 self.state = JasonStates.AFTER_VALUE
-                self.transition(char)
-                return True
+                return self.transition(char)
             elif (
                 char == "]"
+                and self.brackets
                 and not self.need_digit
                 and self.brackets[-1] == "["
             ):
                 self.state = JasonStates.AFTER_VALUE
-                self.transition(char)
-                return True
+                return self.transition(char)
 
         elif self.state == JasonStates.IN_STRING:
             if ord(char) < 32:
@@ -276,7 +290,7 @@ class JasonStateMacheine:
                 else:
                     self.literal_target = "false"
                 return True
-            elif char.isdigit():
+            elif char in "0123456789":
                 self.state = JasonStates.IN_NUMBER
                 self.digit = True
                 self.exponent = False
@@ -299,21 +313,21 @@ class JasonStateMacheine:
 
         elif self.state == JasonStates.AFTER_VALUE:
             if char == ",":
-                if self.brackets[-1] == "{":
+                if self.brackets and self.brackets[-1] == "{":
                     self.state = JasonStates.EXPECT_KEY
                     self.allow_empty_object = False
                     return True
-                elif self.brackets[-1] == "[":
+                elif self.brackets and self.brackets[-1] == "[":
                     self.state = JasonStates.EXPECT_VALUE
                     return True
-            elif char == "]" and self.brackets[-1] == "[":
+            elif char == "]" and self.brackets and self.brackets[-1] == "[":
                 self.brackets.pop()
                 if not self.brackets:
                     self.state = JasonStates.DONE
                 else:
                     self.state = JasonStates.AFTER_VALUE
                 return True
-            elif char == "}" and self.brackets[-1] == "{":
+            elif char == "}" and self.brackets and self.brackets[-1] == "{":
                 self.brackets.pop()
                 if not self.brackets:
                     self.state = JasonStates.DONE
@@ -370,3 +384,28 @@ class JasonStateMacheine:
             if not result:
                 return False
         return True
+
+    def trace(
+        self, input: str
+    ) -> List[Tuple[str, "JasonStates", bool, List[str]]]:
+        final = []
+
+        machine_copy = copy.deepcopy(self)
+
+        for char in input:
+            result = machine_copy.transition(char)
+            legal_chars = machine_copy.legal_next_chars()
+            final.append((char, machine_copy.state, result, legal_chars))
+
+        return final
+
+    def legal_next_chars(self) -> List[str]:
+        candidates = '{}[]":,\\-+.0123456789tfnEe \t\n\rabcdefABCDEFubfnrt/'
+        valid = []
+
+        for char in candidates:
+            result = self.validate_candidate(char)
+            if result:
+                valid.append(char)
+
+        return valid
