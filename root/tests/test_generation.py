@@ -1,6 +1,8 @@
-import src.generation as generation
 import json
+
+import src.generation as generation
 from src.llm_wrapper import LLMWrapper
+from src.vocab import build_vocab_map
 
 
 class FakeLLMWrapper:
@@ -20,44 +22,29 @@ class FakeLLMWrapper:
         ]
 
 
-def test_generation_uses_constrained_decoding(monkeypatch):
+def test_generation_uses_constrained_decoding():
     fake_model = FakeLLMWrapper()
 
-    monkeypatch.setattr(
-        generation,
-        "LLMWrapper",
-        lambda: fake_model,
-    )
-
-    monkeypatch.setattr(
-        generation,
-        "build_vocab_map",
-        lambda model: {
-            0: '"hello"',
-            1: ":",
-            2: "garbage",
-        },
-    )
+    vocab_map = {
+        0: '"hello"',
+        1: ":",
+        2: "garbage",
+    }
 
     result = generation.generate_constrained(
         "give me json",
         max_length=20,
+        model=fake_model,
+        vocab_map=vocab_map,
     )
 
     assert result == [99, 0]
     assert fake_model.logits_calls == 1
 
 
-def test_20_real_generations_produce_parseable_json(monkeypatch):
+def test_20_real_generations_produce_parseable_json():
     model = LLMWrapper()
-
-    # Reuse the same real model for all 20 generations instead of
-    # loading a new model every single time.
-    monkeypatch.setattr(
-        generation,
-        "LLMWrapper",
-        lambda: model,
-    )
+    vocab_map = build_vocab_map(model)
 
     prompts = [
         "Return only a JSON object with a name and age.",
@@ -74,6 +61,8 @@ def test_20_real_generations_produce_parseable_json(monkeypatch):
         result_ids = generation.generate_constrained(
             prompt,
             max_length=len(prompt_ids) + 100,
+            model=model,
+            vocab_map=vocab_map,
         )
 
         generated_ids = result_ids[len(prompt_ids) :]

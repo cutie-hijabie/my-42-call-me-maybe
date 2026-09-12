@@ -1,6 +1,7 @@
 from typing_extensions import Dict
 import json
 from .llm_wrapper import LLMWrapper
+from pathlib import Path
 
 
 def build_vocab_map(wrapper: LLMWrapper) -> Dict[int, str]:
@@ -13,5 +14,13 @@ def build_vocab_map(wrapper: LLMWrapper) -> Dict[int, str]:
 
     for token, id in vocab_data.items():
         vocab_map[int(id)] = token
+
+    tokenizer_path = Path(path).with_name("tokenizer_config.json")
+    with open(tokenizer_path, "r") as file:
+        tokenizer_data = json.load(file)
+        added_tokens = tokenizer_data["added_tokens_decoder"]
+
+    for id, token in added_tokens.items():
+        vocab_map[int(id)] = token["content"]
 
     return vocab_map
