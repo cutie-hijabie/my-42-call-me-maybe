@@ -150,3 +150,78 @@ def test_get_current_parameter_type():
 
     state.current_parameter = None
     assert state.get_current_parameter_type(parameters) == ""
+
+
+from unittest.mock import Mock
+
+from src.json_state import JasonStates
+from src.masking import mask_invalid_tokens
+from src.schema_state import SchemaState, SchemaStage
+
+
+def test_schema_name_masking_keeps_only_valid_function_prefixes():
+    json_machine = Mock()
+    json_machine.state = JasonStates.IN_STRING
+    json_machine.validate_candidate.return_value = True
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+    schema_state.partial_function_name = "fn_g"
+
+    function_names = [
+        "fn_greet",
+        "fn_get_weather",
+    ]
+
+    vocab_map = {
+        0: "r",
+        1: "e",
+        2: "x",
+    }
+
+    logits = [1.0, 1.0, 1.0]
+
+    result = mask_invalid_tokens(
+        logits,
+        json_machine,
+        vocab_map,
+        schema_state,
+        function_names,
+    )
+
+    assert result[0] != float("-inf")
+    assert result[1] != float("-inf")
+    assert result[2] == float("-inf")
+
+
+def test_schema_name_masking_requires_exact_match_on_closing_quote():
+    json_machine = Mock()
+    json_machine.state = JasonStates.IN_STRING
+    json_machine.validate_candidate.return_value = True
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+    schema_state.partial_function_name = "fn_gre"
+
+    function_names = [
+        "fn_greet",
+        "fn_get_weather",
+    ]
+
+    vocab_map = {
+        0: 'et"',
+        1: '"',
+    }
+
+    logits = [1.0, 1.0]
+
+    result = mask_invalid_tokens(
+        logits,
+        json_machine,
+        vocab_map,
+        schema_state,
+        function_names,
+    )
+
+    assert result[0] != float("-inf")
+    assert result[1] == float("-inf")
