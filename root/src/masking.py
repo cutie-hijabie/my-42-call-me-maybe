@@ -1,6 +1,7 @@
 from typing import List, Dict
 from .json_state import JasonStateMacheine, JasonStates
 from .schema_state import SchemaState, SchemaStage
+from .schema import InputDefinition
 
 
 def mask_invalid_tokens(
@@ -9,6 +10,7 @@ def mask_invalid_tokens(
     vocab_map: Dict[int, str],
     schema_state: SchemaState,
     function_names: List[str],
+    definitions: List[InputDefinition],
 ) -> List[float]:
 
     for token_id in range(len(logits)):
@@ -151,6 +153,22 @@ def mask_invalid_tokens(
             else:
                 is_valid = any(
                     function.startswith(copy) for function in function_names
+                )
+            if not is_valid:
+                logits[token_id] = float("-inf")
+                continue
+
+        if schema_state.stage == SchemaStage.PARAMETERS:
+            parameters = schema_state.get_parameters(definitions)
+            copy = (
+                schema_state.partial_parameter_name
+                + token_string.split('"', 1)[0]
+            )
+            if '"' in token_string:
+                is_valid = True if copy in parameters else False
+            else:
+                is_valid = any(
+                    parameter.startswith(copy) for parameter in parameters
                 )
             if not is_valid:
                 logits[token_id] = float("-inf")

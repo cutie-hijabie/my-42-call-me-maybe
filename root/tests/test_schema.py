@@ -180,13 +180,14 @@ def test_schema_name_masking_keeps_only_valid_function_prefixes():
     }
 
     logits = [1.0, 1.0, 1.0]
-
+    definitions = []
     result = mask_invalid_tokens(
         logits,
         json_machine,
         vocab_map,
         schema_state,
         function_names,
+        definitions,
     )
 
     assert result[0] != float("-inf")
@@ -214,6 +215,54 @@ def test_schema_name_masking_requires_exact_match_on_closing_quote():
     }
 
     logits = [1.0, 1.0]
+    definitions = []
+    result = mask_invalid_tokens(
+        logits,
+        json_machine,
+        vocab_map,
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] != float("-inf")
+    assert result[1] == float("-inf")
+
+
+def test_schema_parameter_masking_keeps_only_valid_parameter_names():
+    json_machine = Mock()
+    json_machine.state = JasonStates.IN_STRING
+    json_machine.validate_candidate.return_value = True
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.PARAMETERS
+    schema_state.function_name = "fn_test"
+    schema_state.partial_parameter_name = "re"
+
+    definitions = [
+        InputDefinition(
+            name="fn_test",
+            description="Test function",
+            parameters={
+                "regex": {"type": "string"},
+                "replacement": {"type": "string"},
+                "source_string": {"type": "string"},
+            },
+            returns={"type": "string"},
+        )
+    ]
+
+    function_names = ["fn_test"]
+
+    vocab_map = {
+        0: "g",
+        1: "p",
+        2: "x",
+        3: 'gex"',
+        4: '"',
+    }
+
+    logits = [1.0] * len(vocab_map)
 
     result = mask_invalid_tokens(
         logits,
@@ -221,7 +270,11 @@ def test_schema_name_masking_requires_exact_match_on_closing_quote():
         vocab_map,
         schema_state,
         function_names,
+        definitions,
     )
 
     assert result[0] != float("-inf")
-    assert result[1] == float("-inf")
+    assert result[1] != float("-inf")
+    assert result[2] == float("-inf")
+    assert result[3] != float("-inf")
+    assert result[4] == float("-inf")
