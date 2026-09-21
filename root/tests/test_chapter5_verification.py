@@ -2,6 +2,7 @@ import time
 
 from src.json_state import JasonStateMacheine, JasonStates
 from src.masking import mask_invalid_tokens
+from src.schema_state import SchemaState
 from src.generation import generate_constrained
 from src.llm_wrapper import LLMWrapper
 from src.vocab import build_vocab_map
@@ -50,6 +51,9 @@ def test_optimization_reduces_full_validation_calls():
         logits,
         machine,
         vocab_map,
+        SchemaState(),
+        [],
+        [],
     )
 
     assert validation_calls < len(tokens)
@@ -93,6 +97,9 @@ def test_optimization_skips_obvious_expect_colon_tokens():
         logits,
         machine,
         vocab_map,
+        SchemaState(),
+        [],
+        [],
     )
 
     assert ":" in validated_tokens
@@ -127,6 +134,9 @@ def test_20_generations_finish_under_five_minutes():
             max_length=len(prompt_ids) + 100,
             model=model,
             vocab_map=vocab_map,
+            schema_state=SchemaState(),
+            function_names=[],
+            definitions=[],
         )
 
     elapsed = time.perf_counter() - start
@@ -169,6 +179,9 @@ def test_invalid_token_is_excluded_at_prefilter():
         logits,
         machine,
         vocab_map,
+        SchemaState(),
+        [],
+        [],
     )
 
     assert result[0] == 1.0

@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-
+from src.json_state import JasonStateMacheine, JasonStates
 from src.schema import InputDefinition, InputFileDefinition, InputDefinition
 
 
@@ -278,3 +278,291 @@ def test_schema_parameter_masking_keeps_only_valid_parameter_names():
     assert result[2] == float("-inf")
     assert result[3] != float("-inf")
     assert result[4] == float("-inf")
+
+
+def test_schema_value_masking_allows_string_start():
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.PARAMETERS
+    schema_state.function_name = "fn_greet"
+    schema_state.current_parameter = "name"
+
+    definitions = [
+        InputDefinition(
+            name="fn_greet",
+            description="Greet someone.",
+            parameters={"name": {"type": "string"}},
+            returns={"type": "string"},
+        )
+    ]
+
+    json_machine = Mock()
+    json_machine.state = JasonStates.EXPECT_VALUE
+    json_machine.validate_candidate.return_value = True
+
+    vocab_map = {
+        0: '"',
+        1: '   "',
+        2: "7",
+        3: "-",
+    }
+    logits = [1.0] * len(vocab_map)
+
+    result = mask_invalid_tokens(
+        logits,
+        json_machine,
+        vocab_map,
+        schema_state,
+        ["fn_greet"],
+        definitions,
+    )
+
+    assert result[0] != float("-inf")
+    assert result[1] != float("-inf")
+    assert result[2] == float("-inf")
+    assert result[3] == float("-inf")
+
+
+def test_schema_value_masking_allows_number_start():
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.PARAMETERS
+    schema_state.function_name = "fn_add_numbers"
+    schema_state.current_parameter = "a"
+
+    definitions = [
+        InputDefinition(
+            name="fn_add_numbers",
+            description="Add numbers.",
+            parameters={
+                "a": {"type": "number"},
+                "b": {"type": "number"},
+            },
+            returns={"type": "number"},
+        )
+    ]
+
+    json_machine = Mock()
+    json_machine.state = JasonStates.EXPECT_VALUE
+    json_machine.validate_candidate.return_value = True
+
+    vocab_map = {
+        0: "7",
+        1: "   42",
+        2: "-",
+        3: '"',
+    }
+    logits = [1.0] * len(vocab_map)
+
+    result = mask_invalid_tokens(
+        logits,
+        json_machine,
+        vocab_map,
+        schema_state,
+        ["fn_add_numbers"],
+        definitions,
+    )
+
+    assert result[0] != float("-inf")
+    assert result[1] != float("-inf")
+    assert result[2] != float("-inf")
+    assert result[3] == float("-inf")
+
+
+def test_schema_update_moves_from_prompt_to_name():
+    schema_state = SchemaState()
+    json_machine = JasonStateMacheine()
+
+    json_machine.state = JasonStates.EXPECT_KEY
+
+    schema_state.update(",", json_machine, ["fn_greet", "fn_add_numbers"], {})
+
+    assert schema_state.stage == SchemaStage.NAME
+
+
+def test_schema_update_builds_partial_function_name():
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+
+    json_machine = JasonStateMacheine()
+    json_machine.state = JasonStates.IN_STRING
+    json_machine.string_role = "value"
+
+    schema_state.update(
+        '"fn_', json_machine, ["fn_greet", "fn_add_numbers"], {}
+    )
+
+    assert schema_state.partial_function_name == "fn_"
+    assert schema_state.function_name is None
+
+    schema_state.update(
+        "greet", json_machine, ["fn_greet", "fn_add_numbers"], {}
+    )
+
+    assert schema_state.partial_function_name == "fn_greet"
+    assert schema_state.function_name == "fn_greet"
+
+
+def test_schema_update_does_not_collect_name_key():
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+
+    json_machine = JasonStateMacheine()
+    json_machine.state = JasonStates.IN_STRING
+    json_machine.string_role = "key"
+
+    schema_state.update("name", json_machine, ["fn_greet"], {})
+
+    assert schema_state.partial_function_name == ""
+    assert schema_state.function_name is None
+
+
+def test_schema_update_moves_from_name_to_parameters():
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+    schema_state.partial_function_name = "fn_greet"
+    schema_state.function_name = "fn_greet"
+
+    json_machine = JasonStateMacheine()
+    json_machine.state = JasonStates.EXPECT_KEY
+
+    schema_state.update(",", json_machine, ["fn_greet"], {})
+
+    assert schema_state.stage == SchemaStage.PARAMETERS
+
+
+def test_schema_update_tracks_parameter_name():
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.PARAMETERS
+
+    parameters = {
+        "source_string": ParameterDefinition(type="string"),
+        "regex": ParameterDefinition(type="string"),
+    }
+
+    json_machine = JasonStateMacheine()
+    json_machine.brackets = ["{", "{"]
+    json_machine.state = JasonStates.IN_STRING
+    json_machine.string_role = "key"
+
+    schema_state.update(
+        '"sou',
+        json_machine,
+        ["fn_substitute_string_with_regex"],
+        parameters,
+    )
+
+    assert schema_state.partial_parameter_name == "sou"
+    assert schema_state.current_parameter is None
+
+    schema_state.update(
+        "rce_string",
+        json_machine,
+        ["fn_substitute_string_with_regex"],
+        parameters,
+    )
+
+    assert schema_state.partial_parameter_name == "source_string"
+    assert schema_state.current_parameter == "source_string"
+
+
+def test_schema_update_does_not_track_outer_key_as_parameter():
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.PARAMETERS
+
+    parameters = {
+        "name": ParameterDefinition(type="string"),
+    }
+
+    json_machine = JasonStateMacheine()
+    json_machine.brackets = ["{"]
+    json_machine.state = JasonStates.IN_STRING
+    json_machine.string_role = "key"
+
+    schema_state.update(
+        "parameters",
+        json_machine,
+        ["fn_greet"],
+        parameters,
+    )
+
+    assert schema_state.partial_parameter_name == ""
+    assert schema_state.current_parameter is None
+
+
+def test_schema_update_resets_parameter_before_next_key():
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.PARAMETERS
+    schema_state.partial_parameter_name = "a"
+    schema_state.current_parameter = "a"
+
+    parameters = {
+        "a": ParameterDefinition(type="number"),
+        "b": ParameterDefinition(type="number"),
+    }
+
+    json_machine = JasonStateMacheine()
+    json_machine.brackets = ["{", "{"]
+    json_machine.state = JasonStates.EXPECT_KEY
+
+    schema_state.update(
+        ",",
+        json_machine,
+        ["fn_add_numbers"],
+        parameters,
+    )
+
+    assert schema_state.partial_parameter_name == ""
+    assert schema_state.current_parameter is None
+
+
+def test_schema_update_can_track_next_parameter_after_reset():
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.PARAMETERS
+
+    parameters = {
+        "a": ParameterDefinition(type="number"),
+        "b": ParameterDefinition(type="number"),
+    }
+
+    json_machine = JasonStateMacheine()
+    json_machine.brackets = ["{", "{"]
+
+    # First parameter
+    json_machine.state = JasonStates.IN_STRING
+    json_machine.string_role = "key"
+
+    schema_state.update(
+        '"a',
+        json_machine,
+        ["fn_add_numbers"],
+        parameters,
+    )
+
+    assert schema_state.current_parameter == "a"
+
+    # The first value has finished and the comma has moved us
+    # back to expecting another key.
+    json_machine.state = JasonStates.EXPECT_KEY
+
+    schema_state.update(
+        ",",
+        json_machine,
+        ["fn_add_numbers"],
+        parameters,
+    )
+
+    assert schema_state.partial_parameter_name == ""
+    assert schema_state.current_parameter is None
+
+    # Second parameter
+    json_machine.state = JasonStates.IN_STRING
+    json_machine.string_role = "key"
+
+    schema_state.update(
+        '"b',
+        json_machine,
+        ["fn_add_numbers"],
+        parameters,
+    )
+
+    assert schema_state.partial_parameter_name == "b"
+    assert schema_state.current_parameter == "b"

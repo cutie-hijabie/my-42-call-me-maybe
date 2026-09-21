@@ -158,7 +158,25 @@ def mask_invalid_tokens(
                 logits[token_id] = float("-inf")
                 continue
 
-        if schema_state.stage == SchemaStage.PARAMETERS:
+        if (
+            schema_state.stage == SchemaStage.PARAMETERS
+            and json_machine.state == JasonStates.EXPECT_VALUE
+        ):
+            parameters = schema_state.get_parameters(definitions)
+            parameter_type = schema_state.get_current_parameter_type(
+                parameters
+            )
+            copy = token_string.lstrip()
+            if parameter_type == "string" and not copy.startswith('"'):
+                logits[token_id] = float("-inf")
+                continue
+            elif parameter_type == "number" and not (
+                copy.startswith("-") or copy.isdigit()
+            ):
+                logits[token_id] = float("-inf")
+                continue
+
+        elif schema_state.stage == SchemaStage.PARAMETERS:
             parameters = schema_state.get_parameters(definitions)
             copy = (
                 schema_state.partial_parameter_name

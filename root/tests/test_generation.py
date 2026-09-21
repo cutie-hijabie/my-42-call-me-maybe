@@ -1,6 +1,7 @@
 import json
 
 import src.generation as generation
+from src.schema_state import SchemaState
 from src.llm_wrapper import LLMWrapper
 from src.vocab import build_vocab_map
 
@@ -36,6 +37,9 @@ def test_generation_uses_constrained_decoding():
         max_length=20,
         model=fake_model,
         vocab_map=vocab_map,
+        schema_state=SchemaState(),
+        function_names=[],
+        definitions=[],
     )
 
     assert result == [99, 0]
@@ -63,6 +67,9 @@ def test_20_real_generations_produce_parseable_json():
             max_length=len(prompt_ids) + 100,
             model=model,
             vocab_map=vocab_map,
+            schema_state=SchemaState(),
+            function_names=[],
+            definitions=[],
         )
 
         generated_ids = result_ids[len(prompt_ids) :]

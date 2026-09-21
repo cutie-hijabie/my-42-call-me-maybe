@@ -2,10 +2,18 @@ from typing import Dict, List
 from .masking import mask_invalid_tokens
 from .json_state import JasonStateMacheine
 from .llm_wrapper import LLMWrapper
+from .schema_state import SchemaState
+from .schema import InputDefinition
 
 
 def generate_constrained(
-    propmt: str, max_length: int, model: LLMWrapper, vocab_map: Dict
+    propmt: str,
+    max_length: int,
+    model: LLMWrapper,
+    vocab_map: Dict,
+    schema_state: SchemaState,
+    function_names: List[str],
+    definitions: List[InputDefinition],
 ) -> List[int]:
 
     jason = JasonStateMacheine()
@@ -15,13 +23,18 @@ def generate_constrained(
 
     while not done:
         logits = model.wrapper_get_logits_from_input_ids(token_ids)
-        constarined_logits = mask_invalid_tokens(logits, jason, vocab_map)
+        constarined_logits = mask_invalid_tokens(
+            logits, jason, vocab_map, schema_state, function_names, definitions
+        )
         next_token = max(
             range(len(constarined_logits)), key=lambda i: constarined_logits[i]
         )
         token_string = vocab_map[next_token]
         for char in token_string:
             jason.transition(char)
+
+        parameters = schema_state.get_parameters(definitions)
+        schema_state.update(token_string, jason, function_names, parameters)
 
         token_ids.append(next_token)
 

@@ -2,6 +2,7 @@ import math
 import pytest
 
 from src.masking import mask_invalid_tokens
+from src.schema_state import SchemaState
 from src.json_state import JasonStateMacheine, JasonStates
 
 
@@ -9,7 +10,7 @@ def run_mask(machine, tokens):
     logits = [1.0] * len(tokens)
     vocab_map = {i: token for i, token in enumerate(tokens)}
 
-    result = mask_invalid_tokens(logits, machine, vocab_map)
+    result = mask_invalid_tokens(logits, machine, vocab_map, SchemaState(), [], [])
 
     return {token: result[i] for i, token in enumerate(tokens)}
 
@@ -41,7 +42,7 @@ def test_missing_vocab_ids_are_masked():
         2: "[",
     }
 
-    result = mask_invalid_tokens(logits, machine, vocab_map)
+    result = mask_invalid_tokens(logits, machine, vocab_map, SchemaState(), [], [])
 
     assert result[1] == float("-inf")
 

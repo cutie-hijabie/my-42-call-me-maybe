@@ -1,5 +1,6 @@
 from src.json_state import JasonStateMacheine
 from src.masking import mask_invalid_tokens
+from src.schema_state import SchemaState
 
 
 def test_masking_with_real_json_machine():
@@ -23,7 +24,7 @@ def test_masking_with_real_json_machine():
         5: "true",
     }
 
-    result = mask_invalid_tokens(logits, machine, vocab_map)
+    result = mask_invalid_tokens(logits, machine, vocab_map, SchemaState(), [], [])
 
     assert result[0] == 5.0
     assert result[1] == 8.0
@@ -47,7 +48,7 @@ def test_masking_missing_vocab_id():
         1: "[",
     }
 
-    result = mask_invalid_tokens(logits, machine, vocab_map)
+    result = mask_invalid_tokens(logits, machine, vocab_map, SchemaState(), [], [])
 
     assert result[0] == 5.0
     assert result[1] == 8.0
