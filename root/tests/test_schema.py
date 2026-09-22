@@ -163,6 +163,7 @@ def test_schema_name_masking_keeps_only_valid_function_prefixes():
     json_machine = Mock()
     json_machine.state = JasonStates.IN_STRING
     json_machine.validate_candidate.return_value = True
+    json_machine.string_role = "value"
 
     schema_state = SchemaState()
     schema_state.stage = SchemaStage.NAME
@@ -199,6 +200,7 @@ def test_schema_name_masking_requires_exact_match_on_closing_quote():
     json_machine = Mock()
     json_machine.state = JasonStates.IN_STRING
     json_machine.validate_candidate.return_value = True
+    json_machine.string_role = "value"
 
     schema_state = SchemaState()
     schema_state.stage = SchemaStage.NAME
@@ -233,6 +235,7 @@ def test_schema_parameter_masking_keeps_only_valid_parameter_names():
     json_machine = Mock()
     json_machine.state = JasonStates.IN_STRING
     json_machine.validate_candidate.return_value = True
+    json_machine.string_role = "key"
 
     schema_state = SchemaState()
     schema_state.stage = SchemaStage.PARAMETERS

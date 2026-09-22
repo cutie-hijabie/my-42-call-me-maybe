@@ -626,7 +626,7 @@ def test_incomplete_parameter_name_cannot_close_early():
     machine.state = JasonStates.IN_STRING
     machine.string_role = "key"
 
-    for char in '"na':
+    for char in "na":
         machine.transition(char)
         schema_state.update(
             char,
@@ -650,3 +650,587 @@ def test_incomplete_parameter_name_cannot_close_early():
     )
 
     assert result[0] == float("-inf")
+
+
+# ---------------------------------------------------------------------------
+# Chapter 6 stress tests:
+# runtime function-name + parameter-name masking
+# ---------------------------------------------------------------------------
+
+
+def make_schema_name_stress_context():
+    definitions = [
+        InputDefinition(
+            name="fn_alpha",
+            description="alpha",
+            parameters={
+                "name": ParameterDefinition(type="string"),
+                "nickname": ParameterDefinition(type="string"),
+                "age": ParameterDefinition(type="number"),
+            },
+            returns=ReturnsDefinition(type="string"),
+        ),
+        InputDefinition(
+            name="fn_alpine",
+            description="alpine",
+            parameters={
+                "source": ParameterDefinition(type="string"),
+            },
+            returns=ReturnsDefinition(type="string"),
+        ),
+        InputDefinition(
+            name="fn_beta",
+            description="beta",
+            parameters={
+                "value": ParameterDefinition(type="number"),
+            },
+            returns=ReturnsDefinition(type="number"),
+        ),
+    ]
+
+    function_names = [definition.name for definition in definitions]
+
+    return definitions, function_names
+
+
+def test_function_name_opening_quote_is_allowed():
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{"]
+    machine.state = JasonStates.EXPECT_VALUE
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: '"'},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == 1.0
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        '"f',
+        '"fn',
+        '"fn_',
+        '"fn_a',
+        '"fn_al',
+        '"fn_alp',
+        '"fn_alpha',
+        '"fn_alpine',
+        '"fn_b',
+        '"fn_beta',
+    ],
+)
+def test_function_name_valid_runtime_prefixes_are_allowed(candidate):
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{"]
+    machine.state = JasonStates.EXPECT_VALUE
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: candidate},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == 1.0
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        '"banana',
+        '"fn_z',
+        '"fn_gamma',
+        '"totally_fake',
+    ],
+)
+def test_function_name_invalid_runtime_prefixes_are_blocked(candidate):
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{"]
+    machine.state = JasonStates.EXPECT_VALUE
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: candidate},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == float("-inf")
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        '"fn_alpha"',
+        '"fn_alpine"',
+        '"fn_beta"',
+    ],
+)
+def test_complete_runtime_function_names_can_close(candidate):
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{"]
+    machine.state = JasonStates.EXPECT_VALUE
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: candidate},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == 1.0
+
+
+def test_shared_function_prefix_does_not_force_choice_too_early():
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{"]
+    machine.state = JasonStates.EXPECT_VALUE
+
+    parameters = schema_state.get_parameters(definitions)
+
+    for char in '"fn_al':
+        machine.transition(char)
+        schema_state.update(
+            char,
+            machine,
+            function_names,
+            parameters,
+        )
+
+    assert schema_state.function_name is None
+
+    possible = schema_state.get_possible_function_names(function_names)
+
+    assert set(possible) == {"fn_alpha", "fn_alpine"}
+
+
+@pytest.mark.parametrize(
+    ("partial", "candidate", "should_be_allowed"),
+    [
+        ("fn_", "alpha", True),
+        ("fn_", "beta", True),
+        ("fn_", "banana", False),
+        ("fn_al", "pha", True),
+        ("fn_al", "pine", True),
+        ("fn_al", "banana", False),
+        ("fn_b", "eta", True),
+        ("fn_b", "anana", False),
+    ],
+)
+def test_function_name_split_token_continuations(
+    partial,
+    candidate,
+    should_be_allowed,
+):
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+    schema_state.partial_function_name = partial
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{"]
+    machine.state = JasonStates.IN_STRING
+    machine.string_role = "value"
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: candidate},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    if should_be_allowed:
+        assert result[0] == 1.0
+    else:
+        assert result[0] == float("-inf")
+
+
+@pytest.mark.parametrize(
+    ("partial", "should_be_allowed"),
+    [
+        ("fn_", False),
+        ("fn_a", False),
+        ("fn_al", False),
+        ("fn_alp", False),
+        ("fn_alpha", True),
+        ("fn_alpine", True),
+        ("fn_b", False),
+        ("fn_beta", True),
+    ],
+)
+def test_function_name_can_only_close_on_exact_runtime_name(
+    partial,
+    should_be_allowed,
+):
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+    schema_state.partial_function_name = partial
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{"]
+    machine.state = JasonStates.IN_STRING
+    machine.string_role = "value"
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: '"'},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    if should_be_allowed:
+        assert result[0] == 1.0
+    else:
+        assert result[0] == float("-inf")
+
+
+def test_function_name_schema_mask_stops_after_name_value():
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+    schema_state.function_name = "fn_beta"
+    schema_state.partial_function_name = "fn_beta"
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{"]
+    machine.state = JasonStates.AFTER_VALUE
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: ","},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == 1.0
+
+
+def make_parameter_stress_context():
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.PARAMETERS
+    schema_state.function_name = "fn_alpha"
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{", "{"]
+
+    return (
+        machine,
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        '"',
+        '"n',
+        '"na',
+        '"nam',
+        '"name',
+        '"ni',
+        '"nick',
+        '"nickname',
+        '"a',
+        '"ag',
+        '"age',
+    ],
+)
+def test_parameter_valid_runtime_prefixes_are_allowed(candidate):
+    (
+        machine,
+        schema_state,
+        function_names,
+        definitions,
+    ) = make_parameter_stress_context()
+
+    machine.state = JasonStates.EXPECT_KEY
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: candidate},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == 1.0
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        '"banana',
+        '"names',
+        '"nickname_extra',
+        '"ages',
+        '"source',
+        '"value',
+    ],
+)
+def test_parameter_invalid_runtime_prefixes_are_blocked(candidate):
+    (
+        machine,
+        schema_state,
+        function_names,
+        definitions,
+    ) = make_parameter_stress_context()
+
+    machine.state = JasonStates.EXPECT_KEY
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: candidate},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == float("-inf")
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        '"name"',
+        '"nickname"',
+        '"age"',
+    ],
+)
+def test_complete_runtime_parameter_names_can_close(candidate):
+    (
+        machine,
+        schema_state,
+        function_names,
+        definitions,
+    ) = make_parameter_stress_context()
+
+    machine.state = JasonStates.EXPECT_KEY
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: candidate},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("partial", "should_be_allowed"),
+    [
+        ("n", False),
+        ("na", False),
+        ("nam", False),
+        ("name", True),
+        ("ni", False),
+        ("nick", False),
+        ("nickname", True),
+        ("a", False),
+        ("ag", False),
+        ("age", True),
+    ],
+)
+def test_parameter_name_can_only_close_on_exact_runtime_parameter(
+    partial,
+    should_be_allowed,
+):
+    (
+        machine,
+        schema_state,
+        function_names,
+        definitions,
+    ) = make_parameter_stress_context()
+
+    schema_state.partial_parameter_name = partial
+
+    machine.state = JasonStates.IN_STRING
+    machine.string_role = "key"
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: '"'},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    if should_be_allowed:
+        assert result[0] == 1.0
+    else:
+        assert result[0] == float("-inf")
+
+
+@pytest.mark.parametrize(
+    ("partial", "candidate", "should_be_allowed"),
+    [
+        ("n", "a", True),
+        ("na", "me", True),
+        ("n", "ick", True),
+        ("nick", "name", True),
+        ("a", "ge", True),
+        ("na", "banana", False),
+        ("nick", "banana", False),
+        ("a", "banana", False),
+    ],
+)
+def test_parameter_name_split_token_continuations(
+    partial,
+    candidate,
+    should_be_allowed,
+):
+    (
+        machine,
+        schema_state,
+        function_names,
+        definitions,
+    ) = make_parameter_stress_context()
+
+    schema_state.partial_parameter_name = partial
+
+    machine.state = JasonStates.IN_STRING
+    machine.string_role = "key"
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: candidate},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    if should_be_allowed:
+        assert result[0] == 1.0
+    else:
+        assert result[0] == float("-inf")
+
+
+def test_parameter_names_are_checked_against_selected_function_only():
+    (
+        machine,
+        schema_state,
+        function_names,
+        definitions,
+    ) = make_parameter_stress_context()
+
+    machine.state = JasonStates.EXPECT_KEY
+
+    # "source" exists, but belongs to fn_alpine, not fn_alpha.
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: '"source"'},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == float("-inf")
+
+
+def test_parameter_name_is_not_compared_against_function_names():
+    (
+        machine,
+        schema_state,
+        function_names,
+        definitions,
+    ) = make_parameter_stress_context()
+
+    schema_state.partial_parameter_name = "name"
+
+    machine.state = JasonStates.IN_STRING
+    machine.string_role = "key"
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: '"'},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    # "name" is a parameter, not a function name.
+    # It must still be allowed to close.
+    assert result[0] == 1.0
+
+
+def test_function_name_is_not_compared_against_parameter_names():
+    definitions, function_names = make_schema_name_stress_context()
+
+    schema_state = SchemaState()
+    schema_state.stage = SchemaStage.NAME
+    schema_state.partial_function_name = "fn_beta"
+
+    machine = JasonStateMacheine()
+    machine.brackets = ["{"]
+    machine.state = JasonStates.IN_STRING
+    machine.string_role = "value"
+
+    result = mask_invalid_tokens(
+        [1.0],
+        machine,
+        {0: '"'},
+        schema_state,
+        function_names,
+        definitions,
+    )
+
+    assert result[0] == 1.0

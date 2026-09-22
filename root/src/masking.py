@@ -206,7 +206,7 @@ def mask_invalid_tokens(
                     and json_machine.string_role == "key"
                 ):
                     is_valid = any(
-                        copy == function for function in function_names
+                        copy == parameter for parameter in parameters
                     )
             if not is_valid:
                 logits[token_id] = float("-inf")
