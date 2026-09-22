@@ -162,6 +162,14 @@ def mask_invalid_tokens(
                     is_valid = any(
                         copy == function for function in function_names
                     )
+                elif (
+                    json_machine.state == JasonStates.EXPECT_VALUE
+                    and token_string.count('"') >= 2
+                ):
+                    is_valid = any(
+                        copy == function for function in function_names
+                    )
+
             if not is_valid:
                 logits[token_id] = float("-inf")
                 continue
@@ -198,7 +206,9 @@ def mask_invalid_tokens(
                 '"'
             )
             is_valid = any(
-                parameter.startswith(copy) for parameter in parameters
+                parameter.startswith(copy)
+                and parameter not in schema_state.completed_parameters
+                for parameter in parameters
             )
             if '"' in token_string:
                 if (
@@ -206,7 +216,18 @@ def mask_invalid_tokens(
                     and json_machine.string_role == "key"
                 ):
                     is_valid = any(
-                        copy == parameter for parameter in parameters
+                        copy == parameter
+                        and parameter not in schema_state.completed_parameters
+                        for parameter in parameters
+                    )
+                elif (
+                    json_machine.state == JasonStates.EXPECT_KEY
+                    and token_string.count('"') >= 2
+                ):
+                    is_valid = any(
+                        copy == parameter
+                        and parameter not in schema_state.completed_parameters
+                        for parameter in parameters
                     )
             if not is_valid:
                 logits[token_id] = float("-inf")

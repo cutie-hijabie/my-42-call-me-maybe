@@ -17,6 +17,7 @@ class SchemaState:
         self.current_parameter: str | None = None
         self.partial_function_name = ""
         self.partial_parameter_name = ""
+        self.completed_parameters = set()
 
     def get_possible_function_names(
         self, function_names: List[str]
@@ -111,5 +112,6 @@ class SchemaState:
                     jason_state.state == JasonStates.EXPECT_KEY
                     and token_string == ","
                 ):
+                    self.completed_parameters.add(self.current_parameter)
                     self.current_parameter = None
                     self.partial_parameter_name = ""
