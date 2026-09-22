@@ -78,6 +78,7 @@ class SchemaState:
         if (
             self.stage == SchemaStage.PROMPT
             and jason_state.state == JasonStates.EXPECT_KEY
+            and token_string == ","
         ):
             self.stage = SchemaStage.NAME
 
@@ -90,7 +91,10 @@ class SchemaState:
                     self.partial_function_name + token_string.strip('"')
                 )
                 self.set_function_if_complete(function_names)
-            elif jason_state.state == JasonStates.EXPECT_KEY:
+            elif (
+                jason_state.state == JasonStates.EXPECT_KEY
+                and token_string == ","
+            ):
                 self.stage = SchemaStage.PARAMETERS
 
         elif self.stage == SchemaStage.PARAMETERS:
@@ -103,6 +107,9 @@ class SchemaState:
                         self.partial_parameter_name + token_string.strip('"')
                     )
                     self.set_parameter_if_complete(parameters)
-                elif jason_state.state == JasonStates.EXPECT_KEY:
+                elif (
+                    jason_state.state == JasonStates.EXPECT_KEY
+                    and token_string == ","
+                ):
                     self.current_parameter = None
                     self.partial_parameter_name = ""

@@ -143,17 +143,25 @@ def mask_invalid_tokens(
             logits[token_id] = float("-inf")
             continue
 
-        if schema_state.stage == SchemaStage.NAME:
-            copy = (
-                schema_state.partial_function_name
-                + token_string.split('"', 1)[0]
+        if schema_state.stage == SchemaStage.NAME and (
+            json_machine.state == JasonStates.EXPECT_VALUE
+            or (
+                json_machine.state == JasonStates.IN_STRING
+                and json_machine.string_role == "value"
+            )
+        ):
+            copy = schema_state.partial_function_name + token_string.strip('"')
+            is_valid = any(
+                function.startswith(copy) for function in function_names
             )
             if '"' in token_string:
-                is_valid = True if copy in function_names else False
-            else:
-                is_valid = any(
-                    function.startswith(copy) for function in function_names
-                )
+                if (
+                    json_machine.state == JasonStates.IN_STRING
+                    and json_machine.string_role == "value"
+                ):
+                    is_valid = any(
+                        copy == function for function in function_names
+                    )
             if not is_valid:
                 logits[token_id] = float("-inf")
                 continue
@@ -170,24 +178,36 @@ def mask_invalid_tokens(
             if parameter_type == "string" and not copy.startswith('"'):
                 logits[token_id] = float("-inf")
                 continue
-            elif parameter_type == "number" and not (
-                copy.startswith("-") or copy.isdigit()
+            elif (
+                copy
+                and parameter_type == "number"
+                and not (copy.startswith("-") or copy[0] in "1234567890")
             ):
                 logits[token_id] = float("-inf")
                 continue
 
-        elif schema_state.stage == SchemaStage.PARAMETERS:
+        elif schema_state.stage == SchemaStage.PARAMETERS and (
+            (
+                json_machine.state == JasonStates.IN_STRING
+                and json_machine.string_role == "key"
+            )
+            or (json_machine.state == JasonStates.EXPECT_KEY)
+        ):
             parameters = schema_state.get_parameters(definitions)
-            copy = (
-                schema_state.partial_parameter_name
-                + token_string.split('"', 1)[0]
+            copy = schema_state.partial_parameter_name + token_string.strip(
+                '"'
+            )
+            is_valid = any(
+                parameter.startswith(copy) for parameter in parameters
             )
             if '"' in token_string:
-                is_valid = True if copy in parameters else False
-            else:
-                is_valid = any(
-                    parameter.startswith(copy) for parameter in parameters
-                )
+                if (
+                    json_machine.state == JasonStates.IN_STRING
+                    and json_machine.string_role == "key"
+                ):
+                    is_valid = any(
+                        copy == function for function in function_names
+                    )
             if not is_valid:
                 logits[token_id] = float("-inf")
                 continue

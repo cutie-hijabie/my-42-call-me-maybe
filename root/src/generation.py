@@ -30,11 +30,10 @@ def generate_constrained(
             range(len(constarined_logits)), key=lambda i: constarined_logits[i]
         )
         token_string = vocab_map[next_token]
+        parameters = schema_state.get_parameters(definitions)
         for char in token_string:
             jason.transition(char)
-
-        parameters = schema_state.get_parameters(definitions)
-        schema_state.update(token_string, jason, function_names, parameters)
+            schema_state.update(char, jason, function_names, parameters)
 
         token_ids.append(next_token)
 
