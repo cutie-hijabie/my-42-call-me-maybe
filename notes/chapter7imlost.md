@@ -74,4 +74,20 @@ user request
 
 Then Qwen gets **that**.
 
-
+Chapter 7 — Semantic Function Calling Checklist
+- [x] 1. Establish the failure baseline. "Greet shrek" with the old raw prompt generated -2, proving valid JSON alone isn't enough.
+- [x] 2. Build runtime semantic context. build_prompt() now dynamically gives Qwen an instruction, available function signatures, and the user's request.
+- [x] 3. Unit-test build_prompt(). Passed. We know Qwen receives the function definitions dynamically rather than hardcoded choices.
+- [x] 4. Retry real Qwen generation with semantic context. It generated 1. This exposed that the decoder still permits outputs that are valid JSON but invalid for our required function-call schema.
+- [x] 5. Identify the missing layer. SchemaState knows PROMPT → NAME → PARAMETERS, but masking only has meaningful schema constraints for NAME and PARAMETERS; the beginning/full output grammar isn't yet enforced generically.   schema_state
+- [ ] 6. Define the complete output grammar/state model. Before coding, map what the decoder must know at every point in { "prompt": ..., "name": ..., "parameters": ... } without prompt-specific/function-specific hardcoding.
+- [ ] 7. Implement generic top-level schema constraints. The decoder should derive legal structural/key tokens from the expected output schema/state, rather than a collection of special cases for our current test.
+- [ ] 8. Constrain the dynamic prompt value correctly. The generated prompt field must correspond to the current input while remaining part of constrained generation.
+- [ ] 9. Verify NAME integration. Once generation reaches the name value, Qwen chooses among the runtime function_names; no keyword mapping or heuristic selection.
+- [ ] 10. Verify PARAMETERS integration. Parameter keys/types come dynamically from the function Qwen selected, while Qwen extracts the actual values.
+- [ ] 11. Get "Greet shrek" passing end-to-end. Expected full structured object, not merely parseable JSON.
+- [ ] 12. Run all 11 supplied prompts. Measure function-selection and argument-extraction accuracy rather than eyeballing individual examples.
+- [ ] 13. Stress-test generalization. Different function names/descriptions/parameters, ambiguous prompts, empty strings, special characters, large numbers, etc.—the subject specifically warns that evaluation won't be limited to the supplied examples.     en.subject
+- [ ] 14. Tune semantic context empirically. Compare compact signatures vs descriptions/other prompt variants only if measured accuracy requires it. Target is 90%+, not “this prompt sounds good.”     en.subject
+- [ ] 15. Full regression. All existing Chapter 1–6 tests + Chapter 7 tests must pass. We don't sacrifice your 414 passing tests to get semantics working.
+- [ ] 16. Then move to project integration. CLI/input/output/error handling and final subject-level verification come after the semantic engine works.
