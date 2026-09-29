@@ -143,6 +143,14 @@ def mask_invalid_tokens(
             logits[token_id] = float("-inf")
             continue
 
+        if (
+            schema_state.stage == SchemaStage.PROMPT
+            and json_machine.state == JasonStates.START
+        ):
+            if not token_string.startswith("{"):
+                logits[token_id] = float("-inf")
+                continue
+
         if schema_state.stage == SchemaStage.NAME and (
             json_machine.state == JasonStates.EXPECT_VALUE
             or (
