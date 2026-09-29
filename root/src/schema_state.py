@@ -2,6 +2,7 @@ from enum import Enum
 from typing import List, Dict
 from .schema import InputDefinition, ParameterDefinition
 from .json_state import JasonStateMacheine, JasonStates
+from src import json_state
 
 
 class SchemaStage(Enum):
@@ -11,7 +12,7 @@ class SchemaStage(Enum):
 
 
 class SchemaState:
-    def __init__(self):
+    def __init__(self, og_prompt: str):
         self.stage = SchemaStage.PROMPT
         self.function_name = None
         self.current_parameter: str | None = None
@@ -20,6 +21,9 @@ class SchemaState:
         self.completed_parameters = set()
         self.outer_key_candidates = ["prompt", "name", "parameters"]
         self.partial_key_candidate = ""
+        self.current_outer_key = None
+        self.og_prompt = og_prompt
+        self.partial_og_prompt = ""
 
     def get_possible_key_candidates(self) -> List[str]:
 
@@ -82,12 +86,36 @@ class SchemaState:
         function_names: List[str],
         parameters: Dict[str, ParameterDefinition],
     ) -> None:
+
         if (
-            self.stage == SchemaStage.PROMPT
-            and jason_state.state == JasonStates.EXPECT_KEY
-            and token_string == ","
+            (
+                jason_state.state == JasonStates.IN_STRING
+                and jason_state.string_role == "key"
+            )
+            and (not len(jason_state.brackets) >= 2)
+            and not token_string == '"'
         ):
-            self.stage = SchemaStage.NAME
+            self.partial_key_candidate += token_string
+
+        if token_string == '"' and any(
+            self.partial_key_candidate == key
+            for key in self.outer_key_candidates
+        ):
+            self.outer_key_candidates.remove(self.partial_key_candidate)
+            self.current_outer_key = self.partial_key_candidate
+            self.partial_key_candidate = ""
+
+        if self.stage == SchemaStage.PROMPT:
+            if (
+                jason_state.state == JasonStates.EXPECT_KEY
+                and token_string == ","
+            ):
+                self.stage = SchemaStage.NAME
+            elif self.current_outer_key == "prompt" and (
+                jason_state.state == JasonStates.IN_STRING
+                and jason_state.string_role == "value"
+            ):
+                self.partial_og_prompt += token_string
 
         elif self.stage == SchemaStage.NAME:
             if (
