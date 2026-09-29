@@ -144,6 +144,32 @@ def mask_invalid_tokens(
             continue
 
         if (
+            json_machine.state == JasonStates.EXPECT_KEY
+            or (
+                json_machine.state == JasonStates.IN_STRING
+                and json_machine.string_role == "key"
+            )
+        ) and not len(json_machine.brackets) >= 2:
+            copy = schema_state.partial_key_candidate + token_string.strip('"')
+            is_valid = any(
+                candidate.startswith(copy)
+                for candidate in schema_state.outer_key_candidates
+            )
+            if '"' in token_string:
+                if json_machine.state == JasonStates.IN_STRING or (
+                    json_machine.state == JasonStates.EXPECT_KEY
+                    and token_string.count('"') >= 2
+                ):
+                    is_valid = any(
+                        copy == candidate
+                        for candidate in schema_state.outer_key_candidates
+                    )
+
+            if not is_valid:
+                logits[token_id] = float("-inf")
+                continue
+
+        if (
             schema_state.stage == SchemaStage.PROMPT
             and json_machine.state == JasonStates.START
         ):

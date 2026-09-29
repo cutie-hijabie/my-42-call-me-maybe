@@ -18,6 +18,12 @@ class SchemaState:
         self.partial_function_name = ""
         self.partial_parameter_name = ""
         self.completed_parameters = set()
+        self.outer_key_candidates = ["prompt", "name", "parameters"]
+        self.partial_key_candidate = ""
+
+    def get_possible_key_candidates(self) -> List[str]:
+
+        return self.outer_key_candidates
 
     def get_possible_function_names(
         self, function_names: List[str]
