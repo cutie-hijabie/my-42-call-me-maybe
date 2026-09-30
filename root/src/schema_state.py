@@ -88,13 +88,9 @@ class SchemaState:
     ) -> None:
 
         if (
-            (
-                jason_state.state == JasonStates.IN_STRING
-                and jason_state.string_role == "key"
-            )
-            and (not len(jason_state.brackets) >= 2)
-            and not token_string == '"'
-        ):
+            jason_state.state == JasonStates.IN_STRING
+            and jason_state.string_role == "key"
+        ) and (not len(jason_state.brackets) >= 2):
             self.partial_key_candidate += token_string
 
         if token_string == '"' and any(
@@ -112,8 +108,11 @@ class SchemaState:
             ):
                 self.stage = SchemaStage.NAME
             elif self.current_outer_key == "prompt" and (
-                jason_state.state == JasonStates.IN_STRING
-                and jason_state.string_role == "value"
+                (
+                    jason_state.state == JasonStates.IN_STRING
+                    and jason_state.string_role == "value"
+                )
+                or jason_state.state == JasonStates.IN_STRING_ESCAPE
             ):
                 self.partial_og_prompt += token_string
 
