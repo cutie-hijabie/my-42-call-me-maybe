@@ -4,6 +4,7 @@ from .json_state import JasonStateMacheine
 from .llm_wrapper import LLMWrapper
 from .schema_state import SchemaState
 from .schema import InputDefinition
+import time
 
 
 def generate_constrained(
@@ -18,6 +19,7 @@ def generate_constrained(
 
     jason = JasonStateMacheine()
     token_ids = model.wrapper_encode(propmt)
+    input_length = len(token_ids)
 
     done = False
 
@@ -30,6 +32,7 @@ def generate_constrained(
             range(len(constarined_logits)), key=lambda i: constarined_logits[i]
         )
         token_string = vocab_map[next_token]
+        print(repr(token_string), end=" ", flush=True)
         parameters = schema_state.get_parameters(definitions)
         for char in token_string:
             jason.transition(char)
@@ -37,9 +40,16 @@ def generate_constrained(
 
         token_ids.append(next_token)
 
+        print(
+            "tokens:",
+            len(token_ids),
+            "json complete:",
+            jason.is_complete(),
+        )
+
         if (
             next_token == 151645
-            or len(token_ids) == max_length
+            or len(token_ids) - input_length >= max_length
             or jason.is_complete()
         ):
             done = True

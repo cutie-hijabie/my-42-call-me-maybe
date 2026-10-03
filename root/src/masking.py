@@ -13,6 +13,9 @@ def mask_invalid_tokens(
     definitions: List[InputDefinition],
 ) -> List[float]:
 
+    parameters = schema_state.get_parameters(definitions)
+    parameter_type = schema_state.get_current_parameter_type(parameters)
+
     for token_id in range(len(logits)):
         if token_id not in vocab_map:
             logits[token_id] = float("-inf")
@@ -139,10 +142,6 @@ def mask_invalid_tokens(
             logits[token_id] = float("-inf")
             continue
 
-        if not json_machine.validate_candidate(token_string):
-            logits[token_id] = float("-inf")
-            continue
-
         if (
             json_machine.state == JasonStates.EXPECT_KEY
             or (
@@ -255,10 +254,6 @@ def mask_invalid_tokens(
             schema_state.stage == SchemaStage.PARAMETERS
             and json_machine.state == JasonStates.EXPECT_VALUE
         ):
-            parameters = schema_state.get_parameters(definitions)
-            parameter_type = schema_state.get_current_parameter_type(
-                parameters
-            )
             copy = token_string.lstrip()
             if parameter_type == "string" and not copy.startswith('"'):
                 logits[token_id] = float("-inf")
@@ -278,7 +273,6 @@ def mask_invalid_tokens(
             )
             or (json_machine.state == JasonStates.EXPECT_KEY)
         ):
-            parameters = schema_state.get_parameters(definitions)
             copy = schema_state.partial_parameter_name + token_string.strip(
                 '"'
             )
@@ -310,4 +304,7 @@ def mask_invalid_tokens(
                 logits[token_id] = float("-inf")
                 continue
 
+        if not json_machine.validate_candidate(token_string):
+            logits[token_id] = float("-inf")
+            continue
     return logits

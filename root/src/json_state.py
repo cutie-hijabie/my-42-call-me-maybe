@@ -377,12 +377,13 @@ class JasonStateMacheine:
         return True
 
     def validate_candidate(self, candidate: str) -> bool:
-        machine_copy = copy.deepcopy(self)
+        machine_copy = copy.copy(self)
+        machine_copy.brackets = self.brackets.copy()
 
         for char in candidate:
-            result = machine_copy.transition(char)
-            if not result:
+            if not machine_copy.transition(char):
                 return False
+
         return True
 
     def trace(
