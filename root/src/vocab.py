@@ -13,7 +13,7 @@ def build_vocab_map(wrapper: LLMWrapper) -> Dict[int, str]:
         vocab_map = {}
 
     for token, id in vocab_data.items():
-        vocab_map[int(id)] = token
+        vocab_map[int(id)] = wrapper.wrapper_decode([int(id)])
 
     tokenizer_path = Path(path).with_name("tokenizer_config.json")
     with open(tokenizer_path, "r") as file:

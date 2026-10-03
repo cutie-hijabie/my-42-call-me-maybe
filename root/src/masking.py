@@ -21,6 +21,9 @@ def mask_invalid_tokens(
             logits[token_id] = float("-inf")
             continue
         token_string = vocab_map[token_id]
+        if not token_string:
+            logits[token_id] = float("-inf")
+            continue
         if (
             json_machine.state == JasonStates.EXPECT_COLON
             and not token_string.startswith(
@@ -266,12 +269,16 @@ def mask_invalid_tokens(
                 logits[token_id] = float("-inf")
                 continue
 
-        elif schema_state.stage == SchemaStage.PARAMETERS and (
-            (
-                json_machine.state == JasonStates.IN_STRING
-                and json_machine.string_role == "key"
+        elif (
+            schema_state.stage == SchemaStage.PARAMETERS
+            and len(json_machine.brackets) >= 2
+            and (
+                (
+                    json_machine.state == JasonStates.IN_STRING
+                    and json_machine.string_role == "key"
+                )
+                or (json_machine.state == JasonStates.EXPECT_KEY)
             )
-            or (json_machine.state == JasonStates.EXPECT_KEY)
         ):
             copy = schema_state.partial_parameter_name + token_string.strip(
                 '"'

@@ -37,21 +37,12 @@ def generate_constrained(
             range(len(constarined_logits)), key=lambda i: constarined_logits[i]
         )
         token_string = vocab_map[next_token]
-        print(repr(token_string), end=" ", flush=True)
         parameters = schema_state.get_parameters(definitions)
         for char in token_string:
             jason.transition(char)
             schema_state.update(char, jason, function_names, parameters)
 
         token_ids.append(next_token)
-
-        print(
-            "tokens:",
-            len(token_ids),
-            "json complete:",
-            jason.is_complete(),
-        )
-
         if (
             next_token == 151645
             or len(token_ids) - input_length >= max_length
