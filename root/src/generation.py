@@ -4,7 +4,6 @@ from .json_state import JasonStateMacheine
 from .llm_wrapper import LLMWrapper
 from .schema_state import SchemaState
 from .schema import InputDefinition
-import time
 
 
 def generate_constrained(
@@ -28,6 +27,12 @@ def generate_constrained(
         constarined_logits = mask_invalid_tokens(
             logits, jason, vocab_map, schema_state, function_names, definitions
         )
+        if all(score == float("-inf") for score in constarined_logits):
+            raise ValueError(
+                "No valid next token: "
+                f"JSON state={jason.state.name}, "
+                f"key prefix={schema_state.partial_key_candidate!r}"
+            )
         next_token = max(
             range(len(constarined_logits)), key=lambda i: constarined_logits[i]
         )

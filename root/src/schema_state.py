@@ -2,7 +2,6 @@ from enum import Enum
 from typing import List, Dict
 from .schema import InputDefinition, ParameterDefinition
 from .json_state import JasonStateMacheine, JasonStates
-from src import json_state
 
 
 class SchemaStage(Enum):
@@ -90,6 +89,7 @@ class SchemaState:
         if (
             jason_state.state == JasonStates.IN_STRING
             and jason_state.string_role == "key"
+            and token_string != '"'
         ) and (not len(jason_state.brackets) >= 2):
             self.partial_key_candidate += token_string
 
@@ -111,6 +111,7 @@ class SchemaState:
                 (
                     jason_state.state == JasonStates.IN_STRING
                     and jason_state.string_role == "value"
+                    and token_string != '"'
                 )
                 or jason_state.state == JasonStates.IN_STRING_ESCAPE
             ):
