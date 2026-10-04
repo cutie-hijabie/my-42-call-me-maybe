@@ -55,6 +55,18 @@ class JasonStateMacheine:
             self.state == JasonStates.IN_STRING
             or self.state == JasonStates.IN_STRING_ESCAPE
         ):
+            if self.state == JasonStates.IN_LITERAL:
+                return False
+
+            if self.state == JasonStates.IN_NUMBER:
+                if self.need_digit:
+                    return False
+
+                self.state = (
+                    JasonStates.AFTER_VALUE
+                    if self.brackets
+                    else JasonStates.DONE
+                )
             return True
 
         if self.digits_needed > 0:
@@ -100,7 +112,7 @@ class JasonStateMacheine:
                 if int(char) == 0:
                     self.is_leading_zero = True
                 return True
-            elif char == "-" and not self.has_exponent_sign:
+            elif char == "-":
                 self.state = JasonStates.IN_NUMBER
                 self.digit = False
                 self.exponent = False
@@ -147,7 +159,7 @@ class JasonStateMacheine:
                 if int(char) == 0:
                     self.is_leading_zero = True
                 return True
-            elif char == "-" and not self.has_exponent_sign:
+            elif char == "-":
                 self.state = JasonStates.IN_NUMBER
                 self.digit = False
                 self.exponent = False
@@ -301,7 +313,7 @@ class JasonStateMacheine:
                 if int(char) == 0:
                     self.is_leading_zero = True
                 return True
-            elif char == "-" and not self.has_exponent_sign:
+            elif char == "-":
                 self.state = JasonStates.IN_NUMBER
                 self.digit = False
                 self.exponent = False

@@ -40,6 +40,7 @@ def mask_invalid_tokens(
             continue
         elif (
             json_machine.state == JasonStates.IN_STRING_ESCAPE
+            and json_machine.digits_needed == 0
             and not token_string.startswith(
                 ("\\", "u", "n", "r", "t", "b", "f", '"', "/")
             )

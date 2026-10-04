@@ -120,3 +120,43 @@ Each request gets its own generation process and fresh state.
 
 29. Safety improvement: zero-valid-token situations now fail explicitly instead of silently degenerating into token-ID-0 generation.
 
+
+30. **JSON syntax and function-call structure are separate.** `{}` and `{"prompt":"..."}` are complete, valid JSON. They still fail the project’s output contract because required fields are missing.
+
+31. **A token can contain multiple characters and cross several JSON states.** Candidate validation must simulate every character in order; checking only the token’s first character is insufficient.
+
+32. **Candidate validity does not require completion.** A token that leaves an unfinished string or object can be a valid continuation. Completion is required when returning the final response.
+
+33. **Candidate simulation must preserve live state.** `validate_candidate()` copies the machine and separately copies its mutable bracket list. Rejected candidates must not alter subsequent candidate checks or actual generation.
+
+34. **Number-whitespace bug:** accepting whitespace without leaving `IN_NUMBER` allowed invalid input such as `[1 2]`. The space was ignored, letting the next digit continue the previous number.
+
+35. **Number-whitespace fix:** whitespace now ends a complete number, moving to `AFTER_VALUE` inside a container or `DONE` at the root. If `need_digit` is true, whitespace is rejected because the number is unfinished.
+
+36. **Literal-whitespace bug:** the general whitespace shortcut also accepted invalid fragments such as `t rue`, `fal se`, and `nu ll`. Whitespace is now rejected during `IN_LITERAL`; whitespace after a completed literal remains legal.
+
+37. **Number-state leakage:** `has_exponent_sign` from a previous number could block a new negative number, such as in `[1e+2, -3]`. Number-start branches now accept `-` independently; exponent-sign restrictions remain inside `IN_NUMBER`.
+
+38. **Unicode escape masking bug:** after `\u`, the machine remains in `IN_STRING_ESCAPE` while expecting four hexadecimal digits. The escape-prefix shortcut incorrectly excluded valid digit candidates. That shortcut now applies only when `digits_needed == 0`, leaving pending hexadecimal validation to the grammar.
+
+39. **Generated-token limits exclude model input.** `len(token_ids) - input_length` counts generated tokens. The instruction prompt’s tokens do not consume the current generation allowance.
+
+40. **Stopping and successful completion are different.** Reaching the token limit or selecting EOS can stop the loop while JSON is unfinished. Stopping alone must not cause a normal return.
+
+41. **Completion guard:** after the loop, generation raises `ValueError` if `jason.is_complete()` is false. Complete JSON still succeeds when its final token lands exactly at the limit.
+
+42. **Test import-path lesson:** `uv run python -m pytest` makes the current project directory available for imports such as `src.json_state`. `pytest -m` has a different purpose: selecting test markers.
+
+43. **Unsaved-code diagnosis:** three completion tests initially reported “DID NOT RAISE.” The guard was correct but unsaved. Saving the file made all eight generation tests pass.
+
+44. **Grammar verification:** the existing JSON-state suite and 29 new regression cases passed together: **248 tests passed**. Coverage included whitespace boundaries, exponent-state leakage, Unicode masking, and candidate-state preservation.
+
+45. **Generation verification:** **8 focused cases passed**, using controlled fake-model scores with real generation and masking. They checked selection, multi-character advancement, fresh state, completion, truncation, no legal candidates, and premature EOS.
+
+46. **Real-model observation:** the updated run returned **7 parseable JSON responses**—3 prompt-only objects and 4 empty objects—and reported **4 explicit generation failures**. No malformed or unfinished response was returned in that run.
+
+47. **Remaining diagnostic boundary:** “No valid next token” means all candidates were excluded. Because masking combines JSON and schema rules, the reported JSON state alone does not establish which rule caused the failure.
+
+48. **Next stage:** enforce complete records with exactly `prompt`, `name`, and `parameters`, runtime-valid function names, required parameters, matching types, and exact original-request preservation. Structurally permitted function calls can still have incorrect meaning.
+
+

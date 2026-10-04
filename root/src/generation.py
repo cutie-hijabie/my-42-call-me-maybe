@@ -50,4 +50,11 @@ def generate_constrained(
         ):
             done = True
 
+    if not jason.is_complete():
+        raise ValueError(
+            "Generation stopped before JSON was complete: "
+            f"state={jason.state.name}, "
+            f"generated_tokens={len(token_ids) - input_length}"
+        )
+
     return token_ids
