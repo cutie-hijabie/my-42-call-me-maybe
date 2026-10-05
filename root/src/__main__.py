@@ -47,8 +47,10 @@ def main() -> None:
 
             model_prompt_token_ids = llm_model.wrapper_encode(model_prompt)
             generated_output_ids = generated[len(model_prompt_token_ids) :]
-            generated_output_readable = llm_model.wrapper_decode(
-                generated_output_ids
+            generated_output_readable = json.dumps(
+                json.loads(llm_model.wrapper_decode(generated_output_ids)),
+                indent=2,
+                ensure_ascii=False,
             )
 
             print(

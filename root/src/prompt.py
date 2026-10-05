@@ -1,5 +1,5 @@
 from typing import List
-
+import json
 from .schema import InputDefinition
 
 
@@ -8,8 +8,14 @@ def build_prompt(
     definitions: List[InputDefinition],
 ) -> str:
     prompt = (
-        "Select the function that best matches the user request "
-        "and fill its parameters using the request.\n"
+        "/no_think\n"
+        "Choose exactly one listed function using its description "
+        "and the request's meaning. Allow synonyms and different wording.\n"
+        "Extract every required argument from the request. "
+        "Copy explicitly supplied string values exactly.\n"
+        'Return only compact JSON with keys "prompt", "name", '
+        '"parameters" in that order. Preserve the original request '
+        "in prompt. Use no whitespace outside strings.\n"
     )
 
     functions = "functions: \n"
@@ -24,8 +30,12 @@ def build_prompt(
 
         joined_parameters = ", ".join(parameters)
 
-        functions += joined_parameters + ")\n"
+        functions += f"{joined_parameters}): {definition.description}\n"
 
-    prompt += functions + f"\nRequest: {user_prompt}"
+    prompt += (
+        functions
+        + f"\nRequest: {json.dumps(user_prompt, ensure_ascii=False)}"
+        + "\nJSON:"
+    )
 
     return prompt

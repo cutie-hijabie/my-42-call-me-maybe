@@ -1,7 +1,9 @@
 from typing import List, Dict
 from .json_state import JasonStateMacheine, JasonStates
-from .schema_state import SchemaState, SchemaStage
+from .schema_state import SchemaState
 from .schema import InputDefinition
+from copy import copy as shallow_copy
+import json
 
 
 def mask_invalid_tokens(
@@ -13,8 +15,9 @@ def mask_invalid_tokens(
     definitions: List[InputDefinition],
 ) -> List[float]:
 
-    parameters = schema_state.get_parameters(definitions)
-    parameter_type = schema_state.get_current_parameter_type(parameters)
+    serialized_function_names = [
+        json.dumps(name, ensure_ascii=False) for name in function_names
+    ]
 
     for token_id in range(len(logits)):
         if token_id not in vocab_map:
@@ -147,172 +150,277 @@ def mask_invalid_tokens(
             continue
 
         if (
-            json_machine.state == JasonStates.EXPECT_KEY
-            or (
-                json_machine.state == JasonStates.IN_STRING
-                and json_machine.string_role == "key"
-            )
-        ) and not len(json_machine.brackets) >= 2:
-            copy = schema_state.partial_key_candidate + token_string.strip('"')
-            is_valid = any(
-                candidate.startswith(copy)
-                for candidate in schema_state.outer_key_candidates
-            )
-            if '"' in token_string:
-                if json_machine.state == JasonStates.IN_STRING or (
-                    json_machine.state == JasonStates.EXPECT_KEY
-                    and token_string.count('"') >= 2
+            json_machine.state == JasonStates.IN_STRING
+            and json_machine.string_role == "value"
+            and token_string.isprintable()
+            and '"' not in token_string
+            and "\\" not in token_string
+        ):
+            depth = len(json_machine.brackets)
+
+            if depth == 1 and schema_state.current_outer_key == "prompt":
+                if not schema_state.json_og_prompt.startswith(
+                    schema_state.partial_og_prompt + token_string
                 ):
-                    is_valid = any(
-                        copy == candidate
-                        for candidate in schema_state.outer_key_candidates
+                    logits[token_id] = float("-inf")
+                continue
+
+            if depth == 1 and schema_state.current_outer_key == "name":
+                if not any(
+                    name.startswith(
+                        schema_state.partial_function_name + token_string
                     )
-
-            if not is_valid:
-                logits[token_id] = float("-inf")
+                    for name in serialized_function_names
+                ):
+                    logits[token_id] = float("-inf")
                 continue
 
-        if schema_state.stage == SchemaStage.PROMPT:
-            if (
-                json_machine.state == JasonStates.START
-                and not token_string.startswith("{")
+            if depth == 2:
+                parameters = schema_state.get_parameters(definitions)
+                if (
+                    schema_state.get_current_parameter_type(parameters)
+                    == "string"
+                ):
+                    continue
+
+        candidate_machine = shallow_copy(json_machine)
+        candidate_machine.brackets = json_machine.brackets.copy()
+
+        candidate_schema = shallow_copy(schema_state)
+        candidate_schema.outer_key_candidates = (
+            schema_state.outer_key_candidates.copy()
+        )
+        candidate_schema.completed_parameters = (
+            schema_state.completed_parameters.copy()
+        )
+        candidate_schema.completed_outer_fields = (
+            schema_state.completed_outer_fields.copy()
+        )
+
+        candidate_valid = True
+
+        for char in token_string:
+            state = candidate_machine.state
+            if char in " \t\r\n" and state not in (
+                JasonStates.IN_STRING,
+                JasonStates.IN_STRING_ESCAPE,
             ):
-                logits[token_id] = float("-inf")
-                continue
+                candidate_valid = False
+                break
+            depth = len(candidate_machine.brackets)
+            candidate_parameters = candidate_schema.get_parameters(definitions)
+
             if (
-                json_machine.state == JasonStates.EXPECT_KEY
+                state == JasonStates.START
+                and char not in " \t\r\n"
+                and char != "{"
+            ):
+                candidate_valid = False
+                break
+
+            if depth == 1 and state == JasonStates.EXPECT_KEY:
+                if (
+                    char == '"'
+                    and candidate_schema.stage.value
+                    not in candidate_schema.outer_key_candidates
+                ):
+                    candidate_valid = False
+                    break
+
+            if (
+                depth == 1
+                and state == JasonStates.IN_STRING
+                and candidate_machine.string_role == "key"
+            ):
+                expected_key = candidate_schema.stage.value
+                partial_key = candidate_schema.partial_key_candidate
+
+                key_valid = (
+                    partial_key == expected_key
+                    if char == '"'
+                    else expected_key.startswith(partial_key + char)
+                )
+
+                if (
+                    expected_key not in candidate_schema.outer_key_candidates
+                    or not key_valid
+                ):
+                    candidate_valid = False
+                    break
+            if (
+                depth == 1
+                and state == JasonStates.EXPECT_VALUE
+                and char not in " \t\r\n"
+            ):
+                expected_start = (
+                    "{"
+                    if candidate_schema.current_outer_key == "parameters"
+                    else '"'
+                )
+
+                if char != expected_start:
+                    candidate_valid = False
+                    break
+            if (
+                depth == 1
+                and candidate_schema.current_outer_key == "prompt"
+                and (
+                    state == JasonStates.EXPECT_VALUE
+                    or (
+                        state
+                        in (
+                            JasonStates.IN_STRING,
+                            JasonStates.IN_STRING_ESCAPE,
+                        )
+                        and candidate_machine.string_role == "value"
+                    )
+                )
+                and not (
+                    state == JasonStates.EXPECT_VALUE and char in " \t\r\n"
+                )
+            ):
+                candidate_prompt = candidate_schema.partial_og_prompt + char
+
+                if not candidate_schema.json_og_prompt.startswith(
+                    candidate_prompt
+                ):
+                    candidate_valid = False
+                    break
+            if (
+                depth == 1
+                and candidate_schema.current_outer_key == "name"
+                and (
+                    state == JasonStates.EXPECT_VALUE
+                    or (
+                        state
+                        in (
+                            JasonStates.IN_STRING,
+                            JasonStates.IN_STRING_ESCAPE,
+                        )
+                        and candidate_machine.string_role == "value"
+                    )
+                )
+                and not (
+                    state == JasonStates.EXPECT_VALUE and char in " \t\r\n"
+                )
+            ):
+                candidate_name = candidate_schema.partial_function_name + char
+
+                if not any(
+                    name.startswith(candidate_name)
+                    for name in serialized_function_names
+                ):
+                    candidate_valid = False
+                    break
+            if depth == 2 and (
+                (
+                    state == JasonStates.EXPECT_KEY
+                    and char not in " \t\r\n"
+                    and char != "}"
+                )
                 or (
-                    json_machine.state == JasonStates.IN_STRING
-                    and json_machine.string_role == "key"
+                    state
+                    in (
+                        JasonStates.IN_STRING,
+                        JasonStates.IN_STRING_ESCAPE,
+                    )
+                    and candidate_machine.string_role == "key"
                 )
-            ) and not len(json_machine.brackets) >= 2:
-                copy = schema_state.partial_key_candidate + token_string.strip(
-                    '"'
-                )
-                is_valid = True if "prompt".startswith(copy) else False
-                if '"' in token_string:
-                    if json_machine.state == JasonStates.IN_STRING or (
-                        json_machine.state == JasonStates.EXPECT_KEY
-                        and token_string.count('"') >= 2
-                    ):
-                        is_valid = copy == "prompt"
-                if not is_valid:
-                    logits[token_id] = float("-inf")
-                    continue
-
-            if (schema_state.current_outer_key == "prompt") and (
-                (
-                    json_machine.state == JasonStates.IN_STRING
-                    and json_machine.string_role == "value"
-                )
-                or (json_machine.state == JasonStates.EXPECT_VALUE)
             ):
-                copy = schema_state.partial_og_prompt + token_string.strip('"')
-                is_valid = schema_state.og_prompt.startswith(copy)
-                if '"' in token_string:
-                    if (
-                        json_machine.state == JasonStates.IN_STRING
-                        and json_machine.string_role == "value"
-                    ) or (
-                        json_machine.state == JasonStates.EXPECT_VALUE
-                        and token_string.count('"') >= 2
-                    ):
-                        is_valid = copy == schema_state.og_prompt
+                candidate_key = candidate_schema.partial_parameter_name + char
 
-                if not is_valid:
-                    logits[token_id] = float("-inf")
-                    continue
-
-        if schema_state.stage == SchemaStage.NAME and (
-            json_machine.state == JasonStates.EXPECT_VALUE
-            or (
-                json_machine.state == JasonStates.IN_STRING
-                and json_machine.string_role == "value"
-            )
-        ):
-            copy = schema_state.partial_function_name + token_string.strip('"')
-            is_valid = any(
-                function.startswith(copy) for function in function_names
-            )
-            if '"' in token_string:
-                if (
-                    json_machine.state == JasonStates.IN_STRING
-                    and json_machine.string_role == "value"
-                ):
-                    is_valid = any(
-                        copy == function for function in function_names
+                if not any(
+                    name not in candidate_schema.completed_parameters
+                    and json.dumps(name, ensure_ascii=False).startswith(
+                        candidate_key
                     )
-                elif (
-                    json_machine.state == JasonStates.EXPECT_VALUE
-                    and token_string.count('"') >= 2
+                    for name in candidate_parameters
                 ):
-                    is_valid = any(
-                        copy == function for function in function_names
-                    )
-
-            if not is_valid:
-                logits[token_id] = float("-inf")
-                continue
-
-        if (
-            schema_state.stage == SchemaStage.PARAMETERS
-            and json_machine.state == JasonStates.EXPECT_VALUE
-        ):
-            copy = token_string.lstrip()
-            if parameter_type == "string" and not copy.startswith('"'):
-                logits[token_id] = float("-inf")
-                continue
-            elif (
-                copy
-                and parameter_type == "number"
-                and not (copy.startswith("-") or copy[0] in "1234567890")
+                    candidate_valid = False
+                    break
+            if depth == 2 and state in (
+                JasonStates.EXPECT_VALUE,
+                JasonStates.IN_NUMBER,
             ):
-                logits[token_id] = float("-inf")
-                continue
-
-        elif (
-            schema_state.stage == SchemaStage.PARAMETERS
-            and len(json_machine.brackets) >= 2
-            and (
-                (
-                    json_machine.state == JasonStates.IN_STRING
-                    and json_machine.string_role == "key"
+                candidate_type = candidate_schema.get_current_parameter_type(
+                    candidate_parameters
                 )
-                or (json_machine.state == JasonStates.EXPECT_KEY)
-            )
-        ):
-            copy = schema_state.partial_parameter_name + token_string.strip(
-                '"'
-            )
-            is_valid = any(
-                parameter.startswith(copy)
-                and parameter not in schema_state.completed_parameters
-                for parameter in parameters
-            )
-            if '"' in token_string:
-                if (
-                    json_machine.state == JasonStates.IN_STRING
-                    and json_machine.string_role == "key"
-                ):
-                    is_valid = any(
-                        copy == parameter
-                        and parameter not in schema_state.completed_parameters
-                        for parameter in parameters
-                    )
-                elif (
-                    json_machine.state == JasonStates.EXPECT_KEY
-                    and token_string.count('"') >= 2
-                ):
-                    is_valid = any(
-                        copy == parameter
-                        and parameter not in schema_state.completed_parameters
-                        for parameter in parameters
-                    )
-            if not is_valid:
-                logits[token_id] = float("-inf")
-                continue
 
-        if not json_machine.validate_candidate(token_string):
+                if state == JasonStates.EXPECT_VALUE and char not in " \t\r\n":
+                    valid_start = (
+                        (candidate_type == "string" and char == '"')
+                        or (
+                            candidate_type in ("number", "integer")
+                            and char in "-0123456789"
+                        )
+                        or (candidate_type == "boolean" and char in "tf")
+                        or (candidate_type == "null" and char == "n")
+                    )
+
+                    if not valid_start:
+                        candidate_valid = False
+                        break
+
+                elif (
+                    candidate_type == "integer"
+                    and state == JasonStates.IN_NUMBER
+                    and char in ".eE"
+                ):
+                    candidate_valid = False
+                    break
+            if (
+                char == "}"
+                and len(candidate_machine.brackets) == 1
+                and candidate_machine.state
+                in (JasonStates.EXPECT_KEY, JasonStates.AFTER_VALUE)
+                and not candidate_schema.has_complete_outer_fields()
+            ):
+                candidate_valid = False
+                break
+
+            if not candidate_machine.transition(char):
+                candidate_valid = False
+                break
+
+            candidate_schema.update(
+                char,
+                candidate_machine,
+                function_names,
+                candidate_parameters,
+            )
+
+            if (
+                char == "}"
+                and depth == 2
+                and len(candidate_machine.brackets) == 1
+                and not candidate_schema.has_complete_parameters(
+                    candidate_parameters
+                )
+            ):
+                candidate_valid = False
+                break
+
+            if (
+                char == ","
+                and candidate_machine.state == JasonStates.EXPECT_KEY
+                and (
+                    (
+                        depth == 2
+                        and candidate_schema.has_complete_parameters(
+                            candidate_parameters
+                        )
+                    )
+                    or (
+                        depth == 1
+                        and candidate_schema.has_complete_outer_fields()
+                    )
+                )
+            ):
+                candidate_valid = False
+                break
+
+        if not candidate_valid:
             logits[token_id] = float("-inf")
             continue
+
     return logits

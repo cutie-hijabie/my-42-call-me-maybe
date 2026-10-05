@@ -1,571 +1,195 @@
+"""Schema regressions using serialized name prefixes and real character updates."""
+
 import json
 from pathlib import Path
+
 from src.json_state import JasonStateMacheine, JasonStates
-from src.schema import InputDefinition, InputFileDefinition, InputDefinition
+from src.masking import mask_invalid_tokens
+from src.schema import InputDefinition, InputFileDefinition, ParameterDefinition
+from src.schema_state import SchemaState, SchemaStage
+
+
+NAMES = ["fn_greet", "fn_get_weather", "fn_other"]
+DEFINITIONS = [
+    InputDefinition(
+        name=name,
+        description="Runtime definition.",
+        parameters={"name": {"type": "string"}, "age": {"type": "number"}},
+        returns={"type": "string"},
+    )
+    for name in NAMES
+]
+
+
+def context(prefix, request="x"):
+    machine, schema = JasonStateMacheine(), SchemaState(request)
+    for char in prefix:
+        assert machine.transition(char)
+        schema.update(char, machine, NAMES, schema.get_parameters(DEFINITIONS))
+    return machine, schema
+
+
+def candidates(prefix, vocab):
+    machine, schema = context(prefix)
+    return mask_invalid_tokens(
+        [1.0] * len(vocab), machine, dict(enumerate(vocab)),
+        schema, NAMES, DEFINITIONS,
+    )
 
 
 def test_provided_functions_definition_matches_schema():
     path = Path("data/input/functions_definition.json")
-
-    with path.open("r") as file:
-        data = json.load(file)
-
+    data = json.loads(path.read_text())
     validated = InputFileDefinition.model_validate(data)
-
-    assert len(validated.root) == 5
-    assert all(function.name for function in validated.root)
-    assert all(function.description for function in validated.root)
-
-
-from src.schema_state import SchemaState
+    assert len(validated.root) == len(data)
+    assert validated.root
+    assert all(function.name and function.description for function in validated.root)
 
 
-def test_get_possible_function_names_filters_by_prefix():
-    state = SchemaState()
-    state.partial_function_name = "fn_g"
-
-    function_names = [
-        "fn_add_numbers",
-        "fn_greet",
-        "fn_get_weather",
-        "fn_reverse_string",
-    ]
-
-    result = state.get_possible_function_names(function_names)
-
-    assert result == ["fn_greet", "fn_get_weather"]
+def test_get_possible_function_names_filters_by_serialized_prefix():
+    state = SchemaState("")
+    state.partial_function_name = '"fn_g'
+    assert state.get_possible_function_names(NAMES) == NAMES[:2]
 
 
-from src.schema_state import SchemaState
-
-
-def test_set_function_if_complete_only_sets_exact_match():
-    state = SchemaState()
-
-    function_names = [
-        "fn_greet",
-        "fn_get_weather",
-    ]
-
-    state.partial_function_name = "fn_g"
-    state.set_function_if_complete(function_names)
-
-    assert state.function_name is None
-
-    state.partial_function_name = "fn_greet"
-    state.set_function_if_complete(function_names)
-
+def test_set_function_if_complete_waits_for_closing_quote():
+    state = SchemaState("")
+    for prefix in ['"fn_g', '"fn_greet']:
+        state.partial_function_name = prefix
+        state.set_function_if_complete(NAMES)
+        assert state.function_name is None
+    state.partial_function_name = json.dumps("fn_greet", ensure_ascii=False)
+    state.set_function_if_complete(NAMES)
     assert state.function_name == "fn_greet"
 
 
-def test_get_parameters_returns_chosen_function_parameters():
-    state = SchemaState()
-    state.function_name = "fn_test"
-
-    definitions = [
-        InputDefinition(
-            name="fn_other",
-            description="Another function",
-            parameters={
-                "value": {"type": "string"},
-            },
-            returns={"type": "string"},
-        ),
-        InputDefinition(
-            name="fn_test",
-            description="Test function",
-            parameters={
-                "first": {"type": "number"},
-                "second": {"type": "string"},
-            },
-            returns={"type": "string"},
-        ),
-    ]
-
-    result = state.get_parameters(definitions)
-
-    assert list(result.keys()) == ["first", "second"]
-    assert result["first"].type == "number"
-    assert result["second"].type == "string"
+def test_get_parameters_returns_selected_runtime_definition():
+    state = SchemaState("")
+    assert state.get_parameters(DEFINITIONS) == {}
+    state.function_name = "fn_greet"
+    parameters = state.get_parameters(DEFINITIONS)
+    assert list(parameters) == ["name", "age"]
+    assert parameters["name"].type == "string"
+    assert parameters["age"].type == "number"
 
 
 def test_get_possible_parameter_names_filters_by_prefix():
-    state = SchemaState()
+    state = SchemaState("")
     state.partial_parameter_name = "re"
-
     parameters = {
-        "regex": ParameterDefinition(type="string"),
-        "replacement": ParameterDefinition(type="string"),
-        "source_string": ParameterDefinition(type="string"),
+        key: ParameterDefinition(type="string")
+        for key in ["regex", "replacement", "source_string"]
     }
-
-    result = state.get_possible_parameter_names(parameters)
-
-    assert result == ["regex", "replacement"]
+    assert state.get_possible_parameter_names(parameters) == ["regex", "replacement"]
 
 
-from src.schema import ParameterDefinition
-from src.schema_state import SchemaState
-
-
-def test_parameter_prefix_and_exact_match():
-    state = SchemaState()
-
-    parameters = {
-        "regex": ParameterDefinition(type="string"),
-        "replacement": ParameterDefinition(type="string"),
-        "source_string": ParameterDefinition(type="string"),
-    }
-
-    state.partial_parameter_name = "re"
-
-    result = state.get_possible_parameter_names(parameters)
-
-    assert result == ["regex", "replacement"]
-    assert state.current_parameter is None
-
+def test_parameter_prefix_does_not_bind_an_incomplete_key():
+    state = SchemaState("")
+    parameters = {"name": ParameterDefinition(type="string")}
+    state.partial_parameter_name = "na"
     state.set_parameter_if_complete(parameters)
-
     assert state.current_parameter is None
-
-    state.partial_parameter_name = "regex"
+    state.partial_parameter_name = "name"
     state.set_parameter_if_complete(parameters)
-
-    assert state.current_parameter == "regex"
+    assert state.current_parameter == "name"
 
 
 def test_get_current_parameter_type():
-    state = SchemaState()
-
-    parameters = {
-        "name": ParameterDefinition(type="string"),
-        "age": ParameterDefinition(type="number"),
-    }
-
+    state = SchemaState("")
+    parameters = DEFINITIONS[0].parameters
+    assert state.get_current_parameter_type(parameters) == ""
     state.current_parameter = "name"
     assert state.get_current_parameter_type(parameters) == "string"
-
     state.current_parameter = "age"
     assert state.get_current_parameter_type(parameters) == "number"
 
-    state.current_parameter = None
-    assert state.get_current_parameter_type(parameters) == ""
 
-
-from unittest.mock import Mock
-
-from src.json_state import JasonStates
-from src.masking import mask_invalid_tokens
-from src.schema_state import SchemaState, SchemaStage
-
-
-def test_schema_name_masking_keeps_only_valid_function_prefixes():
-    json_machine = Mock()
-    json_machine.state = JasonStates.IN_STRING
-    json_machine.validate_candidate.return_value = True
-    json_machine.string_role = "value"
-
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.NAME
-    schema_state.partial_function_name = "fn_g"
-
-    function_names = [
-        "fn_greet",
-        "fn_get_weather",
+def test_name_masking_keeps_only_runtime_prefixes():
+    assert candidates('{"prompt":"x","name":"fn_g', ["r", "e", "x"]) == [
+        1.0, 1.0, float("-inf"),
     ]
 
-    vocab_map = {
-        0: "r",
-        1: "e",
-        2: "x",
-    }
 
-    logits = [1.0, 1.0, 1.0]
-    definitions = []
-    result = mask_invalid_tokens(
-        logits,
-        json_machine,
-        vocab_map,
-        schema_state,
-        function_names,
-        definitions,
-    )
-
-    assert result[0] != float("-inf")
-    assert result[1] != float("-inf")
-    assert result[2] == float("-inf")
-
-
-def test_schema_name_masking_requires_exact_match_on_closing_quote():
-    json_machine = Mock()
-    json_machine.state = JasonStates.IN_STRING
-    json_machine.validate_candidate.return_value = True
-    json_machine.string_role = "value"
-
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.NAME
-    schema_state.partial_function_name = "fn_gre"
-
-    function_names = [
-        "fn_greet",
-        "fn_get_weather",
+def test_name_masking_requires_exact_match_on_closing_quote():
+    assert candidates('{"prompt":"x","name":"fn_gre', ['et"', '"']) == [
+        1.0, float("-inf"),
     ]
 
-    vocab_map = {
-        0: 'et"',
-        1: '"',
-    }
 
-    logits = [1.0, 1.0]
-    definitions = []
-    result = mask_invalid_tokens(
-        logits,
-        json_machine,
-        vocab_map,
-        schema_state,
-        function_names,
-        definitions,
-    )
-
-    assert result[0] != float("-inf")
-    assert result[1] == float("-inf")
-
-
-def test_schema_parameter_masking_keeps_only_valid_parameter_names():
-    json_machine = Mock()
-    json_machine.state = JasonStates.IN_STRING
-    json_machine.validate_candidate.return_value = True
-    json_machine.string_role = "key"
-
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.PARAMETERS
-    schema_state.function_name = "fn_test"
-    schema_state.partial_parameter_name = "re"
-
-    definitions = [
-        InputDefinition(
-            name="fn_test",
-            description="Test function",
-            parameters={
-                "regex": {"type": "string"},
-                "replacement": {"type": "string"},
-                "source_string": {"type": "string"},
-            },
-            returns={"type": "string"},
-        )
+def test_parameter_masking_keeps_runtime_key_prefixes():
+    prefix = '{"prompt":"x","name":"fn_greet","parameters":{"na'
+    assert candidates(prefix, ["m", "x", 'me"', '"']) == [
+        1.0, float("-inf"), 1.0, float("-inf"),
     ]
 
-    function_names = ["fn_test"]
 
-    vocab_map = {
-        0: "g",
-        1: "p",
-        2: "x",
-        3: 'gex"',
-        4: '"',
-    }
-
-    logits = [1.0] * len(vocab_map)
-
-    result = mask_invalid_tokens(
-        logits,
-        json_machine,
-        vocab_map,
-        schema_state,
-        function_names,
-        definitions,
-    )
-
-    assert result[0] != float("-inf")
-    assert result[1] != float("-inf")
-    assert result[2] == float("-inf")
-    assert result[3] != float("-inf")
-    assert result[4] == float("-inf")
-
-
-def test_schema_value_masking_allows_string_start():
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.PARAMETERS
-    schema_state.function_name = "fn_greet"
-    schema_state.current_parameter = "name"
-
-    definitions = [
-        InputDefinition(
-            name="fn_greet",
-            description="Greet someone.",
-            parameters={"name": {"type": "string"}},
-            returns={"type": "string"},
-        )
+def test_parameter_string_start_matches_runtime_type():
+    prefix = '{"prompt":"x","name":"fn_greet","parameters":{"name":'
+    assert candidates(prefix, ['"', '   "', "7", "-"]) == [
+        1.0, 1.0, float("-inf"), float("-inf"),
     ]
 
-    json_machine = Mock()
-    json_machine.state = JasonStates.EXPECT_VALUE
-    json_machine.validate_candidate.return_value = True
 
-    vocab_map = {
-        0: '"',
-        1: '   "',
-        2: "7",
-        3: "-",
-    }
-    logits = [1.0] * len(vocab_map)
-
-    result = mask_invalid_tokens(
-        logits,
-        json_machine,
-        vocab_map,
-        schema_state,
-        ["fn_greet"],
-        definitions,
-    )
-
-    assert result[0] != float("-inf")
-    assert result[1] != float("-inf")
-    assert result[2] == float("-inf")
-    assert result[3] == float("-inf")
-
-
-def test_schema_value_masking_allows_number_start():
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.PARAMETERS
-    schema_state.function_name = "fn_add_numbers"
-    schema_state.current_parameter = "a"
-
-    definitions = [
-        InputDefinition(
-            name="fn_add_numbers",
-            description="Add numbers.",
-            parameters={
-                "a": {"type": "number"},
-                "b": {"type": "number"},
-            },
-            returns={"type": "number"},
-        )
+def test_parameter_number_start_matches_runtime_type():
+    prefix = '{"prompt":"x","name":"fn_greet","parameters":{"age":'
+    assert candidates(prefix, ["7", "   42", "-", '"']) == [
+        1.0, 1.0, 1.0, float("-inf"),
     ]
 
-    json_machine = Mock()
-    json_machine.state = JasonStates.EXPECT_VALUE
-    json_machine.validate_candidate.return_value = True
 
-    vocab_map = {
-        0: "7",
-        1: "   42",
-        2: "-",
-        3: '"',
-    }
-    logits = [1.0] * len(vocab_map)
+def test_prompt_comma_moves_to_name():
+    machine, schema = context('{"prompt":"x",')
+    assert machine.state == JasonStates.EXPECT_KEY
+    assert schema.stage == SchemaStage.NAME
 
-    result = mask_invalid_tokens(
-        logits,
-        json_machine,
-        vocab_map,
-        schema_state,
-        ["fn_add_numbers"],
-        definitions,
+
+def test_name_is_collected_until_its_closing_quote():
+    machine, schema = context('{"prompt":"x","name":"fn_greet')
+    assert schema.partial_function_name == '"fn_greet'
+    assert schema.function_name is None
+    assert machine.transition('"')
+    schema.update('"', machine, NAMES, schema.get_parameters(DEFINITIONS))
+    assert schema.partial_function_name == '"fn_greet"'
+    assert schema.function_name == "fn_greet"
+
+
+def test_outer_name_key_is_not_collected_as_function_value():
+    _, schema = context('{"prompt":"x","name"')
+    assert schema.partial_function_name == ""
+    assert schema.function_name is None
+
+
+def test_name_comma_moves_to_parameters():
+    _, schema = context('{"prompt":"x","name":"fn_greet",')
+    assert schema.stage == SchemaStage.PARAMETERS
+    assert schema.function_name == "fn_greet"
+
+
+def test_parameter_name_is_tracked_in_nested_object():
+    _, schema = context('{"prompt":"x","name":"fn_greet","parameters":{"na')
+    assert schema.partial_parameter_name == "na"
+    assert schema.current_parameter is None
+
+
+def test_outer_parameters_key_is_not_collected_as_parameter():
+    _, schema = context('{"prompt":"x","name":"fn_greet","parameters"')
+    assert schema.partial_parameter_name == ""
+    assert schema.current_parameter is None
+
+
+def test_parameter_comma_records_value_and_resets_key():
+    _, schema = context(
+        '{"prompt":"x","name":"fn_greet","parameters":{"name":"Ada",'
     )
-
-    assert result[0] != float("-inf")
-    assert result[1] != float("-inf")
-    assert result[2] != float("-inf")
-    assert result[3] == float("-inf")
+    assert schema.completed_parameters == {"name"}
+    assert schema.partial_parameter_name == ""
+    assert schema.current_parameter is None
 
 
-def test_schema_update_moves_from_prompt_to_name():
-    schema_state = SchemaState()
-    json_machine = JasonStateMacheine()
-
-    json_machine.state = JasonStates.EXPECT_KEY
-
-    schema_state.update(",", json_machine, ["fn_greet", "fn_add_numbers"], {})
-
-    assert schema_state.stage == SchemaStage.NAME
-
-
-def test_schema_update_builds_partial_function_name():
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.NAME
-
-    json_machine = JasonStateMacheine()
-    json_machine.state = JasonStates.IN_STRING
-    json_machine.string_role = "value"
-
-    schema_state.update(
-        '"fn_', json_machine, ["fn_greet", "fn_add_numbers"], {}
+def test_next_parameter_is_tracked_after_reset():
+    _, schema = context(
+        '{"prompt":"x","name":"fn_greet","parameters":{"name":"Ada","age":'
     )
-
-    assert schema_state.partial_function_name == "fn_"
-    assert schema_state.function_name is None
-
-    schema_state.update(
-        "greet", json_machine, ["fn_greet", "fn_add_numbers"], {}
-    )
-
-    assert schema_state.partial_function_name == "fn_greet"
-    assert schema_state.function_name == "fn_greet"
-
-
-def test_schema_update_does_not_collect_name_key():
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.NAME
-
-    json_machine = JasonStateMacheine()
-    json_machine.state = JasonStates.IN_STRING
-    json_machine.string_role = "key"
-
-    schema_state.update("name", json_machine, ["fn_greet"], {})
-
-    assert schema_state.partial_function_name == ""
-    assert schema_state.function_name is None
-
-
-def test_schema_update_moves_from_name_to_parameters():
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.NAME
-    schema_state.partial_function_name = "fn_greet"
-    schema_state.function_name = "fn_greet"
-
-    json_machine = JasonStateMacheine()
-    json_machine.state = JasonStates.EXPECT_KEY
-
-    schema_state.update(",", json_machine, ["fn_greet"], {})
-
-    assert schema_state.stage == SchemaStage.PARAMETERS
-
-
-def test_schema_update_tracks_parameter_name():
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.PARAMETERS
-
-    parameters = {
-        "source_string": ParameterDefinition(type="string"),
-        "regex": ParameterDefinition(type="string"),
-    }
-
-    json_machine = JasonStateMacheine()
-    json_machine.brackets = ["{", "{"]
-    json_machine.state = JasonStates.IN_STRING
-    json_machine.string_role = "key"
-
-    schema_state.update(
-        '"sou',
-        json_machine,
-        ["fn_substitute_string_with_regex"],
-        parameters,
-    )
-
-    assert schema_state.partial_parameter_name == "sou"
-    assert schema_state.current_parameter is None
-
-    schema_state.update(
-        "rce_string",
-        json_machine,
-        ["fn_substitute_string_with_regex"],
-        parameters,
-    )
-
-    assert schema_state.partial_parameter_name == "source_string"
-    assert schema_state.current_parameter == "source_string"
-
-
-def test_schema_update_does_not_track_outer_key_as_parameter():
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.PARAMETERS
-
-    parameters = {
-        "name": ParameterDefinition(type="string"),
-    }
-
-    json_machine = JasonStateMacheine()
-    json_machine.brackets = ["{"]
-    json_machine.state = JasonStates.IN_STRING
-    json_machine.string_role = "key"
-
-    schema_state.update(
-        "parameters",
-        json_machine,
-        ["fn_greet"],
-        parameters,
-    )
-
-    assert schema_state.partial_parameter_name == ""
-    assert schema_state.current_parameter is None
-
-
-def test_schema_update_resets_parameter_before_next_key():
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.PARAMETERS
-    schema_state.partial_parameter_name = "a"
-    schema_state.current_parameter = "a"
-
-    parameters = {
-        "a": ParameterDefinition(type="number"),
-        "b": ParameterDefinition(type="number"),
-    }
-
-    json_machine = JasonStateMacheine()
-    json_machine.brackets = ["{", "{"]
-    json_machine.state = JasonStates.EXPECT_KEY
-
-    schema_state.update(
-        ",",
-        json_machine,
-        ["fn_add_numbers"],
-        parameters,
-    )
-
-    assert schema_state.partial_parameter_name == ""
-    assert schema_state.current_parameter is None
-
-
-def test_schema_update_can_track_next_parameter_after_reset():
-    schema_state = SchemaState()
-    schema_state.stage = SchemaStage.PARAMETERS
-
-    parameters = {
-        "a": ParameterDefinition(type="number"),
-        "b": ParameterDefinition(type="number"),
-    }
-
-    json_machine = JasonStateMacheine()
-    json_machine.brackets = ["{", "{"]
-
-    # First parameter
-    json_machine.state = JasonStates.IN_STRING
-    json_machine.string_role = "key"
-
-    schema_state.update(
-        '"a',
-        json_machine,
-        ["fn_add_numbers"],
-        parameters,
-    )
-
-    assert schema_state.current_parameter == "a"
-
-    # The first value has finished and the comma has moved us
-    # back to expecting another key.
-    json_machine.state = JasonStates.EXPECT_KEY
-
-    schema_state.update(
-        ",",
-        json_machine,
-        ["fn_add_numbers"],
-        parameters,
-    )
-
-    assert schema_state.partial_parameter_name == ""
-    assert schema_state.current_parameter is None
-
-    # Second parameter
-    json_machine.state = JasonStates.IN_STRING
-    json_machine.string_role = "key"
-
-    schema_state.update(
-        '"b',
-        json_machine,
-        ["fn_add_numbers"],
-        parameters,
-    )
-
-    assert schema_state.partial_parameter_name == "b"
-    assert schema_state.current_parameter == "b"
+    assert schema.completed_parameters == {"name"}
+    assert schema.current_parameter == "age"
+    assert schema.get_current_parameter_type(schema.get_parameters(DEFINITIONS)) == "number"

@@ -6,6 +6,7 @@ from llm_sdk import Small_LLM_Model
 class LLMWrapper:
     def __init__(self) -> None:
         self.llm = Small_LLM_Model()
+        print(f"Inference device: {self.llm.encode('check').device}")
 
     def wrapper_encode(self, text: str) -> List[int]:
         token_ids = self.llm.encode(text)

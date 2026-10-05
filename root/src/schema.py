@@ -1,9 +1,9 @@
-from typing import Dict, List
+from typing import Dict, List, Literal
 from pydantic import BaseModel, RootModel
 
 
 class ParameterDefinition(BaseModel):
-    type: str
+    type: Literal["string", "number", "integer", "boolean", "null"]
 
 
 class ReturnsDefinition(BaseModel):
