@@ -16,3 +16,6 @@ dependencies = [
 dev = [
     "pytest>=9.1.1",
 ]
+[[tool.mypy.overrides]]
+module = ["llm_sdk", "llm_sdk.*"]
+follow_imports = "skip"

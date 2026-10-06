@@ -12,21 +12,77 @@ class SchemaStage(Enum):
 
 
 class SchemaState:
-    def __init__(self, og_prompt: str):
+    def __init__(self, og_prompt: str) -> None:
         self.stage = SchemaStage.PROMPT
-        self.function_name = None
+        self.function_name: str | None = None
         self.current_parameter: str | None = None
         self.partial_function_name = ""
         self.partial_parameter_name = ""
-        self.completed_parameters = set()
+        self.completed_parameters: set[str] = set()
         self.outer_key_candidates = ["prompt", "name", "parameters"]
         self.required_outer_keys = frozenset(self.outer_key_candidates)
         self.completed_outer_fields: set[str] = set()
         self.partial_key_candidate = ""
-        self.current_outer_key = None
+        self.current_outer_key: str | None = None
         self.og_prompt = og_prompt
         self.json_og_prompt = json.dumps(og_prompt, ensure_ascii=False)
         self.partial_og_prompt = ""
+
+    def get_forced_text(
+        self,
+        json_state: JasonStateMacheine,
+        definitions: List[InputDefinition],
+    ) -> str | None:
+        if (
+            len(json_state.brackets) == 2
+            and json_state.string_role == "key"
+            and json_state.state
+            in (
+                JasonStates.IN_STRING,
+                JasonStates.IN_STRING_ESCAPE,
+            )
+        ):
+            parameters = self.get_parameters(definitions)
+            candidates = self.get_possible_parameter_names(parameters)
+
+            if len(candidates) == 1:
+                expected = json.dumps(candidates[0], ensure_ascii=False)[:-1]
+                partial = self.partial_parameter_name
+                return expected[len(partial):] or None
+
+            return None
+        if len(json_state.brackets) != 1:
+            return None
+
+        if (
+            json_state.state == JasonStates.IN_STRING
+            and json_state.string_role == "key"
+        ):
+            expected = self.stage.value
+            if expected not in self.outer_key_candidates:
+                return None
+            partial = self.partial_key_candidate
+
+        elif (
+            self.current_outer_key == SchemaStage.PROMPT.value
+            and json_state.string_role == "value"
+            and json_state.state
+            in (
+                JasonStates.IN_STRING,
+                JasonStates.IN_STRING_ESCAPE,
+            )
+        ):
+            # Exclude the closing quote; the model still supplies it.
+            expected = self.json_og_prompt[:-1]
+            partial = self.partial_og_prompt
+
+        else:
+            return None
+
+        if not expected.startswith(partial):
+            return None
+
+        return expected[len(partial):] or None
 
     def get_possible_key_candidates(self) -> List[str]:
 
@@ -55,7 +111,7 @@ class SchemaState:
         self, definitions: List[InputDefinition]
     ) -> Dict[str, ParameterDefinition]:
 
-        result = {}
+        result: Dict[str, ParameterDefinition] = {}
 
         for definition in definitions:
             if self.function_name == definition.name:
@@ -123,7 +179,8 @@ class SchemaState:
             ) or (
                 self.current_outer_key == "parameters" and token_string == "}"
             ):
-                self.completed_outer_fields.add(self.current_outer_key)
+                if self.current_outer_key is not None:
+                    self.completed_outer_fields.add(self.current_outer_key)
 
         if (
             jason_state.state == JasonStates.IN_STRING

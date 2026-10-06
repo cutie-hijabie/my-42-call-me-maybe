@@ -201,6 +201,29 @@ def mask_invalid_tokens(
 
         for char in token_string:
             state = candidate_machine.state
+            if len(candidate_machine.brackets) == 1:
+                fixed_key_pending = (
+                    state == JasonStates.IN_STRING
+                    and candidate_machine.string_role == "key"
+                    and candidate_schema.partial_key_candidate
+                    != candidate_schema.stage.value
+                )
+
+                fixed_prompt_pending = (
+                    state
+                    in (
+                        JasonStates.IN_STRING,
+                        JasonStates.IN_STRING_ESCAPE,
+                    )
+                    and candidate_machine.string_role == "value"
+                    and candidate_schema.current_outer_key == "prompt"
+                    and candidate_schema.partial_og_prompt
+                    != candidate_schema.json_og_prompt[:-1]
+                )
+
+                if fixed_key_pending or fixed_prompt_pending:
+                    candidate_valid = False
+                    break
             if char in " \t\r\n" and state not in (
                 JasonStates.IN_STRING,
                 JasonStates.IN_STRING_ESCAPE,
@@ -365,6 +388,16 @@ def mask_invalid_tokens(
                     candidate_type == "integer"
                     and state == JasonStates.IN_NUMBER
                     and char in ".eE"
+                ):
+                    candidate_valid = False
+                    break
+                elif (
+                    candidate_type == "number"
+                    and state == JasonStates.IN_NUMBER
+                    and char in ",}"
+                    and not (
+                        candidate_machine.decimal or candidate_machine.exponent
+                    )
                 ):
                     candidate_valid = False
                     break

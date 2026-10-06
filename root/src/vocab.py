@@ -20,7 +20,7 @@ def build_vocab_map(wrapper: LLMWrapper) -> Dict[int, str]:
         tokenizer_data = json.load(file)
         added_tokens = tokenizer_data["added_tokens_decoder"]
 
-    for id, token in added_tokens.items():
-        vocab_map[int(id)] = token["content"]
+    for id in added_tokens:
+        vocab_map[int(id)] = wrapper.wrapper_decode([int(id)])
 
     return vocab_map

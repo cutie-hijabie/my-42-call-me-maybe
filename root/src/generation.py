@@ -5,7 +5,6 @@ from .llm_wrapper import LLMWrapper
 from .schema_state import SchemaState
 from .schema import InputDefinition
 import numpy as np
-from time import perf_counter
 from .prompt import build_prompt
 
 
@@ -17,27 +16,64 @@ def generate_constrained(
     schema_state: SchemaState,
     function_names: List[str],
     definitions: List[InputDefinition],
+    no_match_marker: str | None = None,
 ) -> List[int]:
+
+    candidate_names = function_names.copy()
+
+    if no_match_marker is not None:
+        if no_match_marker in candidate_names:
+            raise ValueError("No-match marker conflicts with a function name.")
+        candidate_names.append(no_match_marker)
 
     jason = JasonStateMacheine()
     token_ids = model.wrapper_encode(propmt)
     input_length = len(token_ids)
     selected_prompt_ids: List[int] | None = None
-    model_seconds = 0.0
-    selection_seconds = 0.0
-    checked_candidates = 0
-
     done = False
 
     while not done:
+        if len(token_ids) - input_length >= max_length:
+            raise ValueError("Token limit reached before JSON was complete")
+        forced_text = schema_state.get_forced_text(jason, definitions)
+
+        if forced_text:
+            forced_ids = model.wrapper_encode(forced_text)
+
+            if model.wrapper_decode(forced_ids) != forced_text:
+                raise ValueError("Forced text failed to round-trip")
+
+            generated_length = len(token_ids) - input_length
+            if generated_length + len(forced_ids) > max_length:
+                raise ValueError(
+                    "Token limit reached while copying known text"
+                )
+
+            for char in forced_text:
+                parameters = schema_state.get_parameters(definitions)
+
+                if not jason.transition(char):
+                    raise ValueError("Invalid character in forced text")
+
+                schema_state.update(char, jason, candidate_names, parameters)
+
+            token_ids.extend(forced_ids)
+            continue
+        possible_names = (
+            [schema_state.function_name]
+            if schema_state.function_name is not None
+            else schema_state.get_possible_function_names(candidate_names)
+        )
+
         if (
-            schema_state.function_name is not None
-            and selected_prompt_ids is None
+            selected_prompt_ids is None
+            and len(possible_names) == 1
+            and possible_names[0] != no_match_marker
         ):
             selected_definitions = [
                 definition
                 for definition in definitions
-                if definition.name == schema_state.function_name
+                if definition.name == possible_names[0]
             ]
 
             selected_prompt_ids = model.wrapper_encode(
@@ -47,21 +83,13 @@ def generate_constrained(
                 )
             )
 
-            print(
-                f"Prompt tokens: {input_length} -> "
-                f"{len(selected_prompt_ids)} after function selection"
-            )
-
         model_input_ids = (
             token_ids
             if selected_prompt_ids is None
             else selected_prompt_ids + token_ids[input_length:]
         )
-        started = perf_counter()
         logits = model.wrapper_get_logits_from_input_ids(model_input_ids)
-        model_seconds += perf_counter() - started
 
-        started = perf_counter()
         next_token = None
         candidate_order = np.argsort(-np.asarray(logits), kind="stable")
 
@@ -71,21 +99,18 @@ def generate_constrained(
             if logits[token_id] == float("-inf"):
                 break
 
-            checked_candidates += 1
             checked = mask_invalid_tokens(
                 [logits[token_id]],
                 jason,
                 {0: vocab_map.get(token_id, "")},
                 schema_state,
-                function_names,
+                candidate_names,
                 definitions,
             )
 
             if checked[0] != float("-inf"):
                 next_token = token_id
                 break
-
-        selection_seconds += perf_counter() - started
 
         if next_token is None:
             raise ValueError(
@@ -97,7 +122,13 @@ def generate_constrained(
         for char in token_string:
             parameters = schema_state.get_parameters(definitions)
             jason.transition(char)
-            schema_state.update(char, jason, function_names, parameters)
+            schema_state.update(char, jason, candidate_names, parameters)
+
+            if (
+                no_match_marker is not None
+                and schema_state.function_name == no_match_marker
+            ):
+                raise ValueError("No available function matches this request.")
 
         token_ids.append(next_token)
         if (
@@ -113,12 +144,5 @@ def generate_constrained(
             f"state={jason.state.name}, "
             f"generated_tokens={len(token_ids) - input_length}"
         )
-
-    print(
-        f"Profile: tokens={len(token_ids) - input_length}, "
-        f"model={model_seconds:.2f}s, "
-        f"selection={selection_seconds:.2f}s, "
-        f"candidates checked={checked_candidates}"
-    )
 
     return token_ids

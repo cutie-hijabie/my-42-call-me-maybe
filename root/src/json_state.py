@@ -21,8 +21,8 @@ class JasonStates(IntEnum):
 class JasonStateMacheine:
     def __init__(self) -> None:
         self.state = JasonStates.START
-        self.brackets = []
-        self.string_role = None
+        self.brackets: List[str] = []
+        self.string_role: str | None = None
         self.digits_needed = 0
         self.literal_target: str | None = None
         self.literal_pos = 0

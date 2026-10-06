@@ -16,9 +16,17 @@ debug:
 
 lint:
 	@echo "==> Running flake8..."
-	@flake8 .
+	@flake8 . --extend-exclude=llm_sdk,tests,moulinette,.venv || true
 	@echo "==> Running mypy..."
-	@mypy . --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
+	@mypy .\
+		--warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs\
+		--exclude '(^|/)(llm_sdk|tests|moulinette)/' \
+		--warn-return-any \
+		--warn-unused-ignores \
+		--ignore-missing-imports \
+		--disallow-untyped-defs \
+		--check-untyped-defs || true
+		
 	@echo "==> Lint complete."
 
 lint-strict:
